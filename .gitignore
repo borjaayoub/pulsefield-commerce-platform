@@ -1,0 +1,37 @@
+# Local configuration and generated state
+# Ignore every real environment file, including deployment-named variants.
+# The committed example remains the only safe configuration template.
+.env*
+!.env.example
+.local/
+
+# Dependencies and build output
+node_modules/
+**/node_modules/
+dist/
+coverage/
+.next/
+apps/api/src/generated/prisma/
+*.tsbuildinfo
+*.log
+
+# Tooling and operating-system files
+.pnpm-store/
+.turbo/
+.DS_Store
+Thumbs.db
+
+# Local backups can contain customer data once later phases are implemented.
+*.dump
+*.sql.gz
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Internal project planning and agent workflow
+/docs/
+/AGENTS.md
+/CLAUDE.md
+/IMPLEMENTATION_STATUS.md
+/ecommerce-platform-plan.md

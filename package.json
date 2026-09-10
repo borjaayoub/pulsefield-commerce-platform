@@ -1,0 +1,53 @@
+{
+  "name": "pulse-field-commerce-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first modular e-commerce platform foundation for PULSE//FIELD.",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.19.0 <25",
+    "pnpm": ">=11.19.0 <12"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --stream --filter @pulse-field/web --filter @pulse-field/api --filter @pulse-field/worker run dev",
+    "build": "pnpm -r --if-present run build",
+    "typecheck": "pnpm --filter @pulse-field/contracts --filter @pulse-field/foundation --filter @pulse-field/design-tokens run typecheck && pnpm --filter @pulse-field/contracts --filter @pulse-field/foundation --filter @pulse-field/design-tokens run build && pnpm db:generate && pnpm --filter @pulse-field/api --filter @pulse-field/worker --filter @pulse-field/web run typecheck",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "jest --config jest.config.cjs --runInBand",
+    "test:integration": "tsx apps/api/scripts/run-integration-tests.ts",
+    "validate:env": "tsx tools/validate-env.ts",
+    "boundaries": "tsx tools/check-boundaries.ts",
+    "compose:config": "tsx tools/validate-compose.ts",
+    "secrets:check": "tsx tools/check-secret-handling.ts",
+    "quality": "pnpm validate:env && pnpm boundaries && pnpm compose:config && pnpm secrets:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "db:generate": "pnpm --filter @pulse-field/api exec prisma generate",
+    "db:migrate": "pnpm --filter @pulse-field/api exec prisma migrate deploy",
+    "db:seed": "pnpm --filter @pulse-field/api exec prisma db seed",
+    "db:reset": "node scripts/database/reset.mjs",
+    "db:backup": "node scripts/database/backup.mjs",
+    "db:restore": "node scripts/database/restore.mjs",
+    "local:secrets": "node scripts/local/generate-message-key.mjs",
+    "local:rotate-message-key": "node scripts/local/rotate-message-key.mjs",
+    "local:reencrypt-totp-secrets": "tsx apps/api/scripts/reencrypt-totp-secrets.ts",
+    "local:complete-message-key-rotation": "tsx apps/api/scripts/complete-message-key-rotation.ts",
+    "diagnostics:messaging": "tsx apps/api/scripts/messaging-diagnostics.ts",
+    "smoke:messaging": "pnpm --filter @pulse-field/worker run smoke:delivery"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.5.2",
+    "dotenv": "^16.6.1",
+    "eslint": "^9.35.0",
+    "globals": "^16.3.0",
+    "jest": "^30.0.5",
+    "prettier": "^3.6.2",
+    "ts-jest": "^29.4.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.42.0",
+    "yaml": "^2.8.1"
+  }
+}

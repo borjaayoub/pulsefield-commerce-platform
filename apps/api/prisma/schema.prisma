@@ -1,0 +1,268 @@
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "cjs"
+  generatedFileExtension = "ts"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Phase 1's persisted foundation model. It records versioned, non-commercial
+/// bootstrap configuration; business modules receive their own owned tables
+/// and explicit migrations in their approved phases.
+model FoundationSetting {
+  key            String                      @id @db.VarChar(128)
+  value          Json
+  version        Int                         @default(1)
+  latestRevision Int                         @default(1)
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  revisions      FoundationSettingRevision[]
+}
+
+enum FoundationSettingLifecycle {
+  DRAFT
+  APPROVED
+  ACTIVE
+  RETIRED
+}
+
+enum AuditActorType {
+  CUSTOMER
+  STAFF
+  SYSTEM
+}
+
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED_RETRYABLE
+}
+
+model IdempotencyRecord {
+  id                 String            @id @default(uuid()) @db.Uuid
+  actorType          AuditActorType
+  actorId            String            @db.VarChar(128)
+  operation          String            @db.VarChar(128)
+  keyDigest          String            @db.Char(64)
+  requestFingerprint String            @db.Char(64)
+  status             IdempotencyStatus @default(IN_PROGRESS)
+  claimTokenDigest   String?           @db.Char(64)
+  lockedUntil        DateTime?
+  attemptCount       Int               @default(1)
+  resultType         String?           @db.VarChar(128)
+  resultId           String?           @db.VarChar(128)
+  responseStatus     Int?
+  lastErrorCode      String?           @db.VarChar(64)
+  completedAt        DateTime?
+  expiresAt          DateTime
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@unique([actorType, actorId, operation, keyDigest])
+  @@index([status, lockedUntil])
+  @@index([expiresAt])
+}
+
+model AuditRecord {
+  id             String         @id @default(uuid()) @db.Uuid
+  schemaVersion  Int            @default(1)
+  actorType      AuditActorType
+  actorId        String         @db.VarChar(128)
+  actorRoles     String[]
+  action         String         @db.VarChar(128)
+  targetType     String         @db.VarChar(128)
+  targetId       String         @db.VarChar(128)
+  requestId      String         @db.VarChar(128)
+  correlationId  String         @db.VarChar(128)
+  causationId    String?        @db.VarChar(128)
+  idempotencyKey String         @db.VarChar(128)
+  reason         String         @db.VarChar(500)
+  beforeMetadata Json?
+  afterMetadata  Json?
+  occurredAt     DateTime       @default(now())
+
+  @@index([occurredAt])
+  @@index([actorType, actorId, occurredAt])
+  @@index([targetType, targetId, occurredAt])
+  @@index([correlationId, occurredAt])
+}
+
+model AuditRetentionHold {
+  id         String    @id @default(uuid()) @db.Uuid
+  reason     String    @db.VarChar(500)
+  createdBy  String    @db.VarChar(128)
+  expiresAt  DateTime
+  releasedAt DateTime?
+  releasedBy String?   @db.VarChar(128)
+  createdAt  DateTime  @default(now())
+
+  @@index([releasedAt, expiresAt])
+}
+
+model FoundationSettingRevision {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  setting               FoundationSetting          @relation(fields: [settingKey], references: [key], onDelete: Restrict)
+  settingKey            String                     @db.VarChar(128)
+  version               Int
+  value                 Json
+  lifecycle             FoundationSettingLifecycle
+  validationResult      Json
+  authoredBy            String                     @db.VarChar(128)
+  approvedBy            String?                    @db.VarChar(128)
+  activatedBy           String?                    @db.VarChar(128)
+  retiredBy             String?                    @db.VarChar(128)
+  sourceRevisionVersion Int?
+  effectiveFrom         DateTime?
+  effectiveUntil        DateTime?
+  lockVersion           Int                        @default(1)
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  @@unique([settingKey, version])
+  @@index([settingKey, lifecycle])
+}
+
+enum AccountStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+}
+
+enum RoleName {
+  CUSTOMER
+  FULFILLER
+  ADMINISTRATOR
+}
+
+enum OutboxMessageStatus {
+  PENDING
+  PUBLISHED
+  DEAD_LETTER
+}
+
+enum NotificationDeliveryType {
+  EMAIL_VERIFICATION
+  PASSWORD_RECOVERY
+}
+
+enum NotificationDeliveryStatus {
+  QUEUED
+  ACCEPTED
+  FAILED_TERMINAL
+}
+
+model User {
+  id                           String                   @id @default(uuid()) @db.Uuid
+  emailNormalized              String                   @unique @db.VarChar(255)
+  passwordHash                 String                   @db.VarChar(255)
+  verifiedAt                   DateTime?
+  verificationEmailRequestedAt DateTime?
+  passwordRecoveryRequestedAt  DateTime?
+  credentialVersion            Int                      @default(1)
+  totpSecretCiphertext         String?                  @db.Text
+  totpEnrolledAt               DateTime?
+  totpLastUsedStep             BigInt?
+  status                       AccountStatus            @default(PENDING_VERIFICATION)
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
+  userRoles                    UserRole[]
+  verificationTokens           EmailVerificationToken[]
+  passwordResetTokens          PasswordResetToken[]
+  mfaRecoveryCodes             MfaRecoveryCode[]
+  notificationDeliveries       NotificationDelivery[]
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String    @db.Uuid
+  codeHash  String    @unique @db.Char(64)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, usedAt])
+}
+
+model UserRole {
+  id     String   @id @default(uuid()) @db.Uuid
+  user   User     @relation(fields: [userId], references: [id])
+  userId String   @db.Uuid
+  role   RoleName
+
+  @@unique([userId, role])
+}
+
+model EmailVerificationToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String    @db.Uuid
+  tokenHash  String    @unique @db.Char(64)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String    @db.Uuid
+  tokenHash  String    @unique @db.Char(64)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model OutboxMessage {
+  id             String              @id @default(uuid()) @db.Uuid
+  eventType      String              @db.VarChar(128)
+  eventVersion   Int
+  aggregateType  String              @db.VarChar(128)
+  aggregateId    String              @db.VarChar(128)
+  payload        Json
+  correlationId  String              @db.VarChar(128)
+  causationId    String?             @db.VarChar(128)
+  status         OutboxMessageStatus @default(PENDING)
+  availableAt    DateTime            @default(now())
+  claimedAt      DateTime?
+  claimedBy      String?             @db.VarChar(128)
+  attemptCount   Int                 @default(0)
+  lastError      String?             @db.VarChar(2000)
+  publishedAt    DateTime?
+  deadLetteredAt DateTime?
+  occurredAt     DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([status, availableAt, occurredAt])
+  @@index([claimedAt])
+}
+
+model NotificationDelivery {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  sourceEventId      String                     @unique @db.Uuid
+  user               User                       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  userId             String                     @db.Uuid
+  type               NotificationDeliveryType
+  status             NotificationDeliveryStatus @default(QUEUED)
+  correlationId      String                     @db.VarChar(128)
+  queuedAt           DateTime                   @default(now())
+  acceptedAt         DateTime?
+  failedAt           DateTime?
+  failureCode        String?                    @db.VarChar(64)
+  workerAttemptCount Int                        @default(0)
+  replayedAt         DateTime?
+  replayedBy         String?                    @db.VarChar(128)
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([status, queuedAt])
+  @@index([userId, queuedAt])
+}

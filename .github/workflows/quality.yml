@@ -1,0 +1,43 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      LOCAL_DEVELOPMENT_PROFILE: zero-cost-local
+      NODE_ENV: test
+      DATABASE_URL: postgresql://pulsefield:password@localhost:5432/pulsefield
+      QUEUE_REDIS_URL: redis://localhost:6379/0
+      EPHEMERAL_REDIS_URL: redis://localhost:6380/0
+      SMTP_HOST: localhost
+      SMTP_PORT: 1025
+      SMTP_ALLOW_EXTERNAL: 'false'
+      MESSAGE_ENCRYPTION_KEY_BASE64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      OUTBOX_RELAY_ENABLED: 'false'
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+      PRODUCT_MEDIA_ROOT: ./.local/media
+      WEB_ORIGIN: http://localhost:3000
+      API_PORT: 4000
+      WORKER_PORT: 4001
+      PAYMENT_PROVIDER: stub
+      STRIPE_ENABLED: 'false'
+      BILLABLE_ADAPTERS_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm quality

@@ -1,0 +1,25 @@
+{
+  "name": "@pulse-field/worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/main.js",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "smoke:delivery": "node scripts/run-local-delivery-smoke.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.217.0",
+    "@opentelemetry/sdk-node": "^0.217.0",
+    "@pulse-field/contracts": "workspace:*",
+    "@pulse-field/foundation": "workspace:*",
+    "bullmq": "5.81.4",
+    "nodemailer": "9.0.6",
+    "pino": "^9.9.4"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "8.0.1"
+  }
+}

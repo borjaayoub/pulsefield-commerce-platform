@@ -1,0 +1,32 @@
+packages:
+  - apps/*
+  - packages/*
+
+engineStrict: true
+saveExact: true
+sharedWorkspaceLockfile: true
+preferWorkspacePackages: true
+autoInstallPeers: false
+
+overrides:
+  deepmerge-ts: 8.0.0
+  # Prisma Studio installs mysql2 even though this project uses PostgreSQL.
+  # Keep the transitive client above GHSA-3f6p-5ww8-9rcr's patched boundary.
+  mysql2: 3.22.0
+  protobufjs: 8.4.1
+  '@opentelemetry/propagator-jaeger': 2.9.0
+
+# pnpm 11 requires explicit lifecycle-script decisions. These packages supply
+# local compiler/Prisma binaries; the unrelated Scarf analytics hook remains
+# denied. See https://pnpm.io/settings/build#allowbuilds.
+allowBuilds:
+  '@prisma/engines': true
+  '@scarf/scarf': false
+  argon2@0.45.1: true
+  esbuild: true
+  # Optional native accelerator for BullMQ's msgpackr dependency. The pure-JS
+  # fallback is sufficient, so its install-time native build remains disabled.
+  msgpackr-extract@3.0.4: false
+  prisma: true
+  protobufjs: true
+  unrs-resolver: true

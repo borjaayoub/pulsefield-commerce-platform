@@ -1,0 +1,11 @@
+export const IDENTITY_WEB_ORIGIN = Symbol('IDENTITY_WEB_ORIGIN');
+export const SESSION_REDIS_URL = Symbol('SESSION_REDIS_URL');
+export const SESSION_REDIS_CLIENT = Symbol('SESSION_REDIS_CLIENT');
+export const MFA_CHALLENGE_REDIS_CLIENT = Symbol('MFA_CHALLENGE_REDIS_CLIENT');
+export const MFA_DATA_PROTECTION_KEYS = Symbol('MFA_DATA_PROTECTION_KEYS');
+
+export const SESSION_COOKIE_NAME = 'pulse_field_session';
+export const SESSION_COOKIE_PATH = '/api/v1';
+export const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+export const SESSION_ABSOLUTE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+export const MFA_CHALLENGE_TIMEOUT_MS = 5 * 60 * 1000;

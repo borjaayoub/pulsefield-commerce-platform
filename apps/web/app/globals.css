@@ -1,0 +1,124 @@
+@import 'tailwindcss';
+@import '@pulse-field/design-tokens/tokens.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--pf-color-canvas);
+}
+
+body {
+  margin: 0;
+  background: var(--pf-color-canvas);
+  color: var(--pf-color-ink);
+  font-family: var(--pf-font-body);
+  line-height: 1.5;
+}
+
+:focus-visible {
+  outline: 3px solid var(--pf-color-focus);
+  outline-offset: 3px;
+}
+
+.shell {
+  width: min(100% - 2rem, 72rem);
+  margin: 0 auto;
+  padding: clamp(3rem, 8vw, 7rem) 0;
+}
+
+.eyebrow {
+  margin: 0 0 var(--pf-space-3);
+  color: var(--pf-color-signal-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  font-family: var(--pf-font-display);
+  font-weight: 500;
+  line-height: 0.95;
+  text-wrap: balance;
+}
+
+h1 {
+  max-width: 11ch;
+  margin: 0;
+  font-size: clamp(3rem, 10vw, 7.5rem);
+}
+
+h2 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+}
+
+.lede {
+  max-width: 62ch;
+  margin: var(--pf-space-6) 0 var(--pf-space-12);
+  color: var(--pf-color-muted);
+  font-size: clamp(1.1rem, 2vw, 1.35rem);
+}
+
+.panel {
+  display: grid;
+  gap: var(--pf-space-6);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  margin-block: var(--pf-space-12);
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid var(--pf-border-subtle);
+  border-radius: var(--pf-radius-standard);
+  background: var(--pf-color-surface);
+}
+
+.panel p {
+  margin: 0;
+}
+
+.service-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: var(--pf-space-6) 0;
+  padding: 1px;
+  list-style: none;
+  background: var(--pf-border-subtle);
+}
+
+.service-list li {
+  display: grid;
+  gap: var(--pf-space-2);
+  min-height: 7rem;
+  padding: var(--pf-space-6);
+  background: var(--pf-color-surface);
+}
+
+.service-list span,
+.hint {
+  color: var(--pf-color-muted);
+}
+
+code {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 42rem) {
+  .panel,
+  .service-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

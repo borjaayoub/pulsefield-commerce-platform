@@ -1,0 +1,3 @@
+export const MESSAGING_PROFILE = Symbol('MESSAGING_PROFILE');
+export const OUTBOX_PUBLISHER = Symbol('OUTBOX_PUBLISHER');
+export const OUTBOX_CLAIM_LEASE_MS = 30_000;

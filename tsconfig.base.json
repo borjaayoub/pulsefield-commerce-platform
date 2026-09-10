@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@pulse-field/contracts": ["packages/contracts/src/index.ts"],
+      "@pulse-field/foundation": ["packages/foundation/src/index.ts"],
+      "@pulse-field/design-tokens": ["packages/design-tokens/src/index.ts"]
+    }
+  }
+}

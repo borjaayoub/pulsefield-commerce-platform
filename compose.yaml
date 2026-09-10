@@ -1,0 +1,177 @@
+name: pulse-field-commerce
+
+x-application-environment: &application-environment
+  LOCAL_DEVELOPMENT_PROFILE: zero-cost-local
+  NODE_ENV: development
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgresql://pulsefield:${POSTGRES_PASSWORD:-pulsefield_local_only}@postgres:5432/pulsefield?schema=public
+  QUEUE_REDIS_URL: redis://redis-queue:6379/0
+  EPHEMERAL_REDIS_URL: redis://redis-cache:6379/0
+  SMTP_HOST: mailpit
+  SMTP_PORT: 1025
+  SMTP_ALLOW_EXTERNAL: 'false'
+  MESSAGE_ENCRYPTION_KEY_BASE64: '${MESSAGE_ENCRYPTION_KEY_BASE64:?Run pnpm local:secrets first}'
+  OUTBOX_RELAY_ENABLED: 'true'
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  PRODUCT_MEDIA_ROOT: /app/.local/media
+  WEB_ORIGIN: http://localhost:3000
+  API_PORT: 4000
+  WORKER_PORT: 4001
+  PAYMENT_PROVIDER: stub
+  STRIPE_ENABLED: 'false'
+  BILLABLE_ADAPTERS_ENABLED: 'false'
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: pulsefield
+      POSTGRES_USER: pulsefield
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pulsefield_local_only}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pulsefield -d pulsefield']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+    networks: [local]
+
+  redis-queue:
+    image: redis:7.4.7-alpine
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--appendfsync',
+        'everysec',
+        '--maxmemory',
+        '256mb',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - redis_queue_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [local]
+
+  redis-cache:
+    image: redis:7.4.7-alpine
+    command:
+      [
+        'redis-server',
+        '--save',
+        '',
+        '--appendonly',
+        'no',
+        '--maxmemory',
+        '128mb',
+        '--maxmemory-policy',
+        'allkeys-lru',
+      ]
+    ports:
+      - '127.0.0.1:6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [local]
+
+  mailpit:
+    image: axllent/mailpit:v1.27.7
+    ports:
+      - '127.0.0.1:1025:1025'
+      - '127.0.0.1:8025:8025'
+    restart: unless-stopped
+    networks: [local]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    ports:
+      - '127.0.0.1:16686:16686'
+      - '127.0.0.1:4318:4318'
+    restart: unless-stopped
+    networks: [local]
+
+  api:
+    profiles: [apps]
+    build:
+      context: .
+      target: api
+    environment:
+      <<: *application-environment
+      API_BIND_HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:4000:4000'
+    volumes:
+      - product_media_data:/app/.local/media
+    restart: unless-stopped
+    networks: [local]
+
+  worker:
+    profiles: [apps]
+    build:
+      context: .
+      target: worker
+    environment:
+      <<: *application-environment
+      WORKER_BIND_HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+    volumes:
+      - product_media_data:/app/.local/media
+    restart: unless-stopped
+    networks: [local]
+
+  web:
+    profiles: [apps]
+    build:
+      context: .
+      target: web
+    environment:
+      NODE_ENV: production
+    command: ['pnpm', '--filter', '@pulse-field/web', 'exec', 'next', 'start', '-H', '0.0.0.0']
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - '127.0.0.1:3000:3000'
+    restart: unless-stopped
+    networks: [local]
+
+volumes:
+  postgres_data:
+  redis_queue_data:
+  product_media_data:
+
+networks:
+  local:
+    driver: bridge

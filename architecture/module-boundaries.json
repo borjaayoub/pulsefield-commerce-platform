@@ -1,0 +1,54 @@
+{
+  "modules": [
+    {
+      "name": "contracts",
+      "path": "packages/contracts",
+      "package": "@pulse-field/contracts",
+      "allowedWorkspaceDependencies": []
+    },
+    {
+      "name": "foundation",
+      "path": "packages/foundation",
+      "package": "@pulse-field/foundation",
+      "allowedWorkspaceDependencies": ["@pulse-field/contracts"]
+    },
+    {
+      "name": "design-tokens",
+      "path": "packages/design-tokens",
+      "package": "@pulse-field/design-tokens",
+      "allowedWorkspaceDependencies": []
+    },
+    {
+      "name": "api",
+      "path": "apps/api",
+      "package": "@pulse-field/api",
+      "allowedWorkspaceDependencies": [
+        "@pulse-field/contracts",
+        "@pulse-field/foundation"
+      ]
+    },
+    {
+      "name": "worker",
+      "path": "apps/worker",
+      "package": "@pulse-field/worker",
+      "allowedWorkspaceDependencies": [
+        "@pulse-field/contracts",
+        "@pulse-field/foundation"
+      ]
+    },
+    {
+      "name": "web",
+      "path": "apps/web",
+      "package": "@pulse-field/web",
+      "allowedWorkspaceDependencies": ["@pulse-field/design-tokens"]
+    }
+  ],
+  "forbiddenImports": {
+    "apps/web": ["@prisma/client", "prisma", "stripe", "resend", "posthog", "@auth0"],
+    "apps/api": ["resend", "posthog", "@auth0", "cloudinary"],
+    "apps/worker": ["resend", "posthog", "@auth0", "cloudinary"]
+  },
+  "forbiddenSourcePatterns": {
+    "apps/web": ["process\\.env\\.(DATABASE_URL|QUEUE_REDIS_URL|EPHEMERAL_REDIS_URL)"]
+  }
+}
