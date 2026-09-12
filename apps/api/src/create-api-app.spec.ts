@@ -1006,6 +1006,22 @@ describe('API foundation', () => {
     );
   });
 
+  it('allows credentialed cart PUT and DELETE preflight headers', async () => {
+    for (const method of ['PUT', 'DELETE']) {
+      const response = await request(app.getHttpServer())
+        .options('/api/v1/cart/items/30000000-0000-4000-8000-000000000001')
+        .set('origin', 'http://localhost:3000')
+        .set('access-control-request-method', method)
+        .set('access-control-request-headers', 'content-type, if-match');
+
+      expect(response.status).toBe(204);
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3000');
+      expect(response.headers['access-control-allow-credentials']).toBe('true');
+      expect(response.headers['access-control-allow-methods']).toContain(method);
+      expect(response.headers['access-control-allow-headers'].toLowerCase()).toContain('if-match');
+    }
+  });
+
   it('publishes both identity request schemas in OpenAPI', async () => {
     const response = await request(app.getHttpServer()).get('/api/docs/openapi.json');
 

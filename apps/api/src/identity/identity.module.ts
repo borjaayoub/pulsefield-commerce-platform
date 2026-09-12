@@ -93,11 +93,15 @@ export class IdentityModule {
         NotificationDeliveryReplayService,
       ],
       exports: [
+        BrowserRequestGuard,
+        IDENTITY_WEB_ORIGIN,
         EmailVerificationTokenService,
         PasswordResetTokenService,
         AuthorizationService,
         RoleAuthorizationGuard,
         RecentStaffAuthenticationGuard,
+        SessionAuthenticationGuard,
+        SessionService,
       ],
     };
   }

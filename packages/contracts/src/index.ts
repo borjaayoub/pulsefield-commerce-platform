@@ -42,6 +42,7 @@ export interface DomainEventEnvelope<TPayload> {
 export interface CreatePaymentInput {
   orderId: string;
   amount: Money;
+  paymentMethodReference: string;
   metadata: Record<string, string>;
 }
 

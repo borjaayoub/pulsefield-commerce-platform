@@ -66,6 +66,7 @@ async function loginIdentifierTracker(request: Record<string, unknown>): Promise
 @ApiTags('Identity sessions')
 @ApiExtraModels(MfaRequiredDto, MfaEnrollmentRequiredDto)
 @Controller('auth/sessions')
+@SkipThrottle({ cartAll: true, cartMutation: true })
 export class SessionController {
   private readonly secureCookie: boolean;
 

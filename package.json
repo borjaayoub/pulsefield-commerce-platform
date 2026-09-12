@@ -16,6 +16,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "jest --config jest.config.cjs --runInBand",
+    "test:e2e": "playwright test",
     "test:integration": "tsx apps/api/scripts/run-integration-tests.ts",
     "validate:env": "tsx tools/validate-env.ts",
     "boundaries": "tsx tools/check-boundaries.ts",
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
+    "@playwright/test": "1.55.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.5.2",
     "dotenv": "^16.6.1",

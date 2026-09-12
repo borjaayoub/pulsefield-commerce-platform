@@ -2,12 +2,18 @@ import { DynamicModule, Module } from '@nestjs/common';
 import type { LocalProfile } from '@pulse-field/foundation';
 import { AuditModule } from './audit/audit.module';
 import { ConfigurationModule } from './configuration/configuration.module';
+import { CatalogModule } from './catalog/catalog.module';
+import { CartModule } from './cart/cart.module';
+import { CheckoutModule } from './checkout/checkout.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health.controller';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { IdentityModule } from './identity/identity.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
+import { FulfillmentModule } from './fulfillment/fulfillment.module';
+import { ReservationExpiryModule } from './reservation-expiry/reservation-expiry.module';
+import { OperationsModule } from './operations/operations.module';
 
 @Module({})
 export class AppModule {
@@ -16,6 +22,12 @@ export class AppModule {
       module: AppModule,
       imports: [
         DatabaseModule.forRoot(profile.DATABASE_URL),
+        CatalogModule,
+        CartModule,
+        CheckoutModule,
+        FulfillmentModule,
+        ReservationExpiryModule.forRoot(profile),
+        OperationsModule.forRoot(profile),
         AuditModule.forRoot(profile),
         ConfigurationModule,
         IdempotencyModule.forRoot(profile),

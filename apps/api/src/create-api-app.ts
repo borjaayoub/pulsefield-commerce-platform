@@ -61,7 +61,8 @@ export async function createApiApp(profile: LocalProfile): Promise<NestExpressAp
     origin: profile.WEB_ORIGIN,
     credentials: true,
     methods: ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'X-Request-ID', 'X-CSRF-Token'],
+    allowedHeaders: ['Content-Type', 'X-Request-ID', 'X-CSRF-Token', 'If-Match', 'Idempotency-Key'],
+    exposedHeaders: ['ETag'],
     maxAge: 600,
   });
   app.setGlobalPrefix('api/v1');

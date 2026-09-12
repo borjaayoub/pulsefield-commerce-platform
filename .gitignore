@@ -11,6 +11,8 @@ node_modules/
 dist/
 coverage/
 .next/
+test-results/
+playwright-report/
 apps/api/src/generated/prisma/
 *.tsbuildinfo
 *.log

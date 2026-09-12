@@ -26,12 +26,31 @@ import {
 } from '../identity/authentication.errors';
 import { PasswordPolicyError } from '../identity/password-policy';
 import { RateLimitStorageUnavailableError } from '../rate-limit/rate-limit.errors';
+import {
+  CartItemUnavailableError,
+  CartRequestValidationError,
+  CartRevisionConflictError,
+  CartRevisionRequiredError,
+  CartCheckoutPendingError,
+} from '../cart/cart.errors';
+import { CheckoutConflictError, CheckoutRequestError } from '../checkout/checkout.errors';
+import {
+  FulfillmentConflictError,
+  FulfillmentRequestError,
+} from '../fulfillment/fulfillment.errors';
+import {
+  IdempotencyConflictError,
+  InvalidIdempotencyInputError,
+} from '../idempotency/idempotency.errors';
 
 interface ProblemDefinition {
   status: number;
   code: string;
   detail: string;
   errors?: string[];
+  availableQuantity?: number;
+  currentRevision?: number;
+  currentVersion?: number;
 }
 
 function validationMessages(exception: HttpException): string[] | undefined {
@@ -61,6 +80,94 @@ function safeHttpDetail(status: number): string {
 }
 
 function defineProblem(exception: unknown): ProblemDefinition {
+  if (exception instanceof CheckoutConflictError) {
+    return {
+      status:
+        exception.code === 'CART_REVISION_REQUIRED' || exception.code === 'IDEMPOTENCY_KEY_REQUIRED'
+          ? HttpStatus.PRECONDITION_REQUIRED
+          : HttpStatus.CONFLICT,
+      code: exception.code,
+      detail: exception.message,
+      ...(exception.currentRevision !== undefined
+        ? { currentRevision: exception.currentRevision }
+        : {}),
+    };
+  }
+  if (
+    exception instanceof CheckoutRequestError ||
+    exception instanceof InvalidIdempotencyInputError
+  ) {
+    return {
+      status: HttpStatus.BAD_REQUEST,
+      code: 'REQUEST_VALIDATION_FAILED',
+      detail: 'Request validation failed.',
+    };
+  }
+  if (exception instanceof FulfillmentConflictError) {
+    return {
+      status:
+        exception.code === 'FULFILLMENT_REVISION_REQUIRED' ||
+        exception.code === 'IDEMPOTENCY_KEY_REQUIRED'
+          ? HttpStatus.PRECONDITION_REQUIRED
+          : exception.code === 'FULFILLMENT_NOT_FOUND'
+            ? HttpStatus.NOT_FOUND
+            : HttpStatus.CONFLICT,
+      code: exception.code,
+      detail: exception.message,
+      ...(exception.currentVersion !== undefined
+        ? { currentVersion: exception.currentVersion }
+        : {}),
+    };
+  }
+  if (exception instanceof FulfillmentRequestError) {
+    return {
+      status: HttpStatus.BAD_REQUEST,
+      code: exception.code,
+      detail: exception.message,
+    };
+  }
+  if (exception instanceof IdempotencyConflictError) {
+    return {
+      status: HttpStatus.CONFLICT,
+      code: 'IDEMPOTENCY_KEY_CONFLICT',
+      detail: exception.message,
+    };
+  }
+  if (exception instanceof CartCheckoutPendingError) {
+    return { status: HttpStatus.CONFLICT, code: exception.code, detail: exception.message };
+  }
+  if (exception instanceof CartRevisionRequiredError) {
+    return {
+      status: HttpStatus.PRECONDITION_REQUIRED,
+      code: exception.code,
+      detail: exception.message,
+    };
+  }
+
+  if (exception instanceof CartRevisionConflictError) {
+    return {
+      status: HttpStatus.CONFLICT,
+      code: exception.code,
+      detail: exception.message,
+      ...(exception.currentRevision !== undefined
+        ? { currentRevision: exception.currentRevision }
+        : {}),
+    };
+  }
+
+  if (exception instanceof CartItemUnavailableError) {
+    return {
+      status: HttpStatus.CONFLICT,
+      code: exception.code,
+      detail: exception.message,
+      availableQuantity: exception.availableQuantity,
+    };
+  }
+
+  if (exception instanceof CartRequestValidationError) {
+    return { status: HttpStatus.BAD_REQUEST, code: exception.code, detail: exception.message };
+  }
+
   if (exception instanceof InvalidCredentialsError) {
     return {
       status: HttpStatus.UNAUTHORIZED,
@@ -252,6 +359,13 @@ export class HttpProblemDetailsFilter implements ExceptionFilter {
         code: problem.code,
         requestId,
         ...(problem.errors ? { errors: problem.errors } : {}),
+        ...(problem.availableQuantity !== undefined
+          ? { availableQuantity: problem.availableQuantity }
+          : {}),
+        ...(problem.currentRevision !== undefined
+          ? { currentRevision: problem.currentRevision }
+          : {}),
+        ...(problem.currentVersion !== undefined ? { currentVersion: problem.currentVersion } : {}),
       });
   }
 }

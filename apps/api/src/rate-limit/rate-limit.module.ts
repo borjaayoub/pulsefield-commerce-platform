@@ -14,6 +14,9 @@ export const LOGIN_IP_RATE_LIMIT = 20;
 export const LOGIN_IDENTIFIER_RATE_LIMIT = 5;
 export const MFA_IP_RATE_LIMIT = 20;
 export const MFA_CHALLENGE_RATE_LIMIT = 5;
+export const CART_REQUEST_RATE_LIMIT = 120;
+export const CART_MUTATION_RATE_LIMIT = 60;
+export const CHECKOUT_RATE_LIMIT = 20;
 
 @Module({})
 export class RateLimitModule {
@@ -62,6 +65,30 @@ export class RateLimitModule {
               ttl: IDENTITY_RATE_LIMIT_WINDOW_MS,
               limit: MFA_CHALLENGE_RATE_LIMIT,
               blockDuration: IDENTITY_RATE_LIMIT_WINDOW_MS,
+            },
+            {
+              name: 'cartAll',
+              ttl: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              limit: CART_REQUEST_RATE_LIMIT,
+              blockDuration: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              skipIf: (context) =>
+                !context.switchToHttp().getRequest().path.startsWith('/api/v1/cart'),
+            },
+            {
+              name: 'cartMutation',
+              ttl: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              limit: CART_MUTATION_RATE_LIMIT,
+              blockDuration: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              skipIf: (context) =>
+                !context.switchToHttp().getRequest().path.startsWith('/api/v1/cart'),
+            },
+            {
+              name: 'checkout',
+              ttl: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              limit: CHECKOUT_RATE_LIMIT,
+              blockDuration: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              skipIf: (context) =>
+                !context.switchToHttp().getRequest().path.startsWith('/api/v1/checkouts'),
             },
           ],
         }),

@@ -43,6 +43,8 @@ import { PublicCustomerRegistrationService } from './public-customer-registratio
 @Controller('auth')
 @UseGuards(IdentityThrottlerGuard)
 @SkipThrottle({
+  cartAll: true,
+  cartMutation: true,
   loginIp: true,
   loginIdentifier: true,
   verificationRequestIdentifier: true,

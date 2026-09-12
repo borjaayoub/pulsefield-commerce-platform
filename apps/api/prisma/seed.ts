@@ -2,6 +2,8 @@ import { config as loadEnvironment } from 'dotenv';
 import { resolve } from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client';
+import { seedPhase3Commerce } from './seed-commerce';
+import { seedDemoStaff } from './seed-demo-staff';
 
 loadEnvironment({ path: resolve(process.cwd(), '.env') });
 loadEnvironment({ path: resolve(process.cwd(), '../../.env') });
@@ -10,6 +12,7 @@ const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL is required for the deterministic seed.');
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+const COMMERCE_POLICY_ID = '62000000-0000-4000-8000-000000000001';
 
 async function main(): Promise<void> {
   await prisma.foundationSetting.upsert({
@@ -44,8 +47,50 @@ async function main(): Promise<void> {
     },
     update: {},
   });
+
+  await seedPhase3Commerce(prisma);
+  const activePriceBookVersion = await prisma.priceBookVersion.findFirstOrThrow({
+    where: {
+      lifecycle: 'ACTIVE',
+      priceBook: { code: 'US-RETAIL', marketCode: 'US', currencyCode: 'USD' },
+    },
+    orderBy: { version: 'desc' },
+  });
+  await prisma.commercePolicyVersion.upsert({
+    where: { version: 1 },
+    create: {
+      id: COMMERCE_POLICY_ID,
+      version: 1,
+      lifecycle: 'ACTIVE',
+      effectiveFrom: new Date('2026-09-10T00:00:00.000Z'),
+      countryCode: 'US',
+      currencyCode: 'USD',
+      priceBookVersionId: activePriceBookVersion.id,
+      shippingBaseMinor: 800,
+      freeShippingThresholdMinor: 12000,
+      heavySurchargeMinor: 400,
+      heavyThresholdGrams: 2000,
+      taxRateBasisPoints: 825,
+      reservationDurationSeconds: 600,
+      calculationVersion: 'us-usd-2026-09-10',
+    },
+    update: {},
+  });
+  const activePolicies = await prisma.commercePolicyVersion.findMany({
+    where: { lifecycle: 'ACTIVE', countryCode: 'US', currencyCode: 'USD' },
+  });
+  if (
+    activePolicies.length !== 1 ||
+    activePolicies[0]?.version !== 1 ||
+    activePolicies[0]?.id !== COMMERCE_POLICY_ID
+  ) {
+    throw new Error('The deterministic seed requires exactly one active US/USD commerce policy.');
+  }
+  if (process.env.PHASE3_DEMO_MODE === 'true') await seedDemoStaff(prisma);
 }
 
 void main()
-  .then(() => process.stdout.write('Seeded Phase 1 foundation settings.\n'))
+  .then(() =>
+    process.stdout.write('Seeded Phase 1 foundation settings and Phase 3 commerce data.\n'),
+  )
   .finally(async () => prisma.$disconnect());

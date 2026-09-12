@@ -56,6 +56,8 @@ function challengeTracker(request: Record<string, unknown>): string {
 @Controller('auth')
 @UseGuards(IdentityThrottlerGuard, BrowserRequestGuard)
 @SkipThrottle({
+  cartAll: true,
+  cartMutation: true,
   loginIp: true,
   loginIdentifier: true,
   verificationRequestIdentifier: true,

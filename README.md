@@ -4,9 +4,9 @@ This repository is a portfolio-grade, modular e-commerce platform built in demon
 
 ## Current milestone
 
-Phase 1, **Architecture and delivery foundation**, is complete. Phase 2, **Identity and reliable messaging foundation**, is in progress: the repository now includes the identity schema, Argon2id password boundary, public customer registration, verification, recovery, Passport Local login, revocable server-side Redis sessions, CSRF-protected logout, staff TOTP MFA and authorization, governed audit/idempotency foundations, a transactional outbox relay, encrypted BullMQ identity jobs, a local Mailpit worker, durable notification-delivery evidence, and one-time recently-MFA-authorized replay for terminal failures.
+Phase 1, **Architecture and delivery foundation**, Phase 2, **Identity and reliable messaging foundation**, and Phase 3, **Reference vertical slice**, are complete as of 2026-09-12. Phase 3 includes the deterministic US/USD catalog and inventory foundation, public storefront discovery, a persistent anonymous cart, policy-versioned checkout with a local payment stub, reservation/order snapshots, bounded reservation expiry, linear staff fulfillment transitions, local SVG product media, accessible storefront pages, protected operations projections, staff MFA, deterministic demo reset, and the complete browser acceptance journey. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for exact final evidence and the canonical-wrapper `ENOMEM` caveat.
 
-Catalog, inventory, checkout, payment processing, and operations workflows remain deferred to their approved slices. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for the precise scope.
+The protected Phase 3 operations dashboard is available at `/operations` after staff password and local TOTP MFA authentication. It uses masked, read-only projections; only fulfillers can advance the existing fulfillment path. The checkout and fulfillment path use only the non-networked stub and seeded `US-EAST-01` warehouse; no Stripe or hosted payment service is required.
 
 ## Quick start
 
@@ -26,7 +26,18 @@ pnpm dev
 Then open:
 
 - Storefront foundation: `http://localhost:3000`
+- Public catalog: `http://localhost:3000/catalog`
+- Staff operations: `http://localhost:3000/operations`
 - API health: `http://localhost:4000/api/v1/health`
+- Public catalog list: `GET http://localhost:4000/api/v1/catalog/products`
+- Public product detail: `GET http://localhost:4000/api/v1/catalog/products/:slug`
+- Anonymous cart: `GET http://localhost:4000/api/v1/cart`
+- Set cart line: `PUT http://localhost:4000/api/v1/cart/items/:variantId`
+- Remove cart line: `DELETE http://localhost:4000/api/v1/cart/items/:variantId`
+- Checkout preview: `POST http://localhost:4000/api/v1/checkouts/preview`
+- Create checkout: `POST http://localhost:4000/api/v1/checkouts`
+- Staff fulfillment transition: `POST http://localhost:4000/api/v1/staff/fulfillment-groups/:id/transitions`
+- Staff operations projections: `GET http://localhost:4000/api/v1/staff/operations/{catalog|inventory|reservations|orders|payments|fulfillment|audit}`
 - OpenAPI UI: `http://localhost:4000/api/docs`
 - Customer registration: `POST http://localhost:4000/api/v1/auth/registrations`
 - Email verification: `POST http://localhost:4000/api/v1/auth/email-verifications`
@@ -66,6 +77,7 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm test:integration
+pnpm test:e2e
 pnpm build
 pnpm quality
 ```

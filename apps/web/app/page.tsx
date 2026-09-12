@@ -11,8 +11,8 @@ export default function HomePage() {
       <p className="eyebrow">PULSE//FIELD · local commerce platform</p>
       <h1>Architecture and delivery foundation</h1>
       <p className="lede">
-        The application shell, versioned API, local infrastructure, security controls, and
-        module contracts are ready. Commerce workflows begin in their scheduled phases.
+        The application shell, versioned API, local infrastructure, security controls, and module
+        contracts are ready. Commerce workflows begin in their scheduled phases.
       </p>
       <section aria-labelledby="local-profile-heading" className="panel">
         <div>
@@ -39,6 +39,12 @@ export default function HomePage() {
         API health: <code>http://localhost:4000/api/v1/health</code> · API contract:{' '}
         <code>http://localhost:4000/api/docs</code>
       </p>
+      <p>
+        <Link href="/catalog" className="catalog-link">
+          Browse the local catalog →
+        </Link>
+      </p>
     </main>
   );
 }
+import Link from 'next/link';

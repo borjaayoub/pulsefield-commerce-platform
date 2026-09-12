@@ -24,4 +24,19 @@ export class ProblemDetailsDto {
 
   @ApiPropertyOptional({ type: [String] })
   errors?: string[];
+
+  @ApiPropertyOptional({
+    minimum: 0,
+    description: 'Current server-derived availability for a cart variant.',
+  })
+  availableQuantity?: number;
+
+  @ApiPropertyOptional({ minimum: 1, description: 'Current safe cart revision after a conflict.' })
+  currentRevision?: number;
+
+  @ApiPropertyOptional({
+    minimum: 1,
+    description: 'Current fulfillment group version after a conflict.',
+  })
+  currentVersion?: number;
 }

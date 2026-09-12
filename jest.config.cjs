@@ -2,7 +2,7 @@
 module.exports = {
   roots: ['<rootDir>/apps', '<rootDir>/packages'],
   testMatch: ['**/*.spec.ts'],
-  testPathIgnorePatterns: ['\\.integration\\.spec\\.ts$'],
+  testPathIgnorePatterns: ['\\.integration\\.spec\\.ts$', '<rootDir>/apps/web/e2e/'],
   testEnvironment: 'node',
   clearMocks: true,
   collectCoverageFrom: [
