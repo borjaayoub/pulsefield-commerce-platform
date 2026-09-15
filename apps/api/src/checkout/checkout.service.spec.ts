@@ -7,7 +7,8 @@ import {
   toIdempotencyShippingAddress,
   withCheckoutTransactionRetry,
 } from './checkout.service';
-import { CheckoutConflictError } from './checkout.errors';
+import { CheckoutConflictError, CheckoutRequestError } from './checkout.errors';
+import { PaymentApplicationService } from '../payments/payment-application.service';
 import { plainToInstance } from 'class-transformer';
 import { fingerprintIdempotentRequest } from '../idempotency/request-fingerprint';
 import { CreateCheckoutDto } from './checkout.dto';
@@ -21,6 +22,42 @@ const POLICY = {
 };
 
 describe('Phase 3 US/USD checkout calculation', () => {
+  it('enforces the server-selected provider request shape before persistence', async () => {
+    const prisma = { cart: { findUnique: jest.fn() } };
+    const stripe = new CheckoutService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      new PaymentApplicationService('stripe', {} as never, 'pk_test_example'),
+    );
+    const stub = new CheckoutService(prisma as never, {} as never, {} as never, {} as never);
+    const base = {
+      shippingAddress: {
+        fullName: 'Demo Person',
+        line1: '1 Test Street',
+        city: 'Austin',
+        state: 'TX',
+        postalCode: '78701',
+        countryCode: 'US' as const,
+      },
+      pricingFingerprint: 'a'.repeat(16),
+    };
+
+    await expect(
+      stripe.create(
+        'cart-token',
+        1,
+        'key',
+        { ...base, paymentMethodReference: 'stub-success' },
+        'request-1',
+      ),
+    ).rejects.toBeInstanceOf(CheckoutRequestError);
+    await expect(stub.create('cart-token', 1, 'key', base, 'request-1')).rejects.toBeInstanceOf(
+      CheckoutRequestError,
+    );
+    expect(prisma.cart.findUnique).not.toHaveBeenCalled();
+  });
+
   it('projects a transformed checkout address to a plain safe idempotency input', () => {
     const dto = plainToInstance(CreateCheckoutDto, {
       shippingAddress: {

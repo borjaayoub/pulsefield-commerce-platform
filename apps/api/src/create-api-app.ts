@@ -3,13 +3,14 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { LocalProfile } from '@pulse-field/foundation';
-import type { NextFunction, Request, Response } from 'express';
+import { json, raw, urlencoded, type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from './app.module';
 import { HttpProblemDetailsFilter } from './http/http-problem-details.filter';
 import { createLogger } from './logger';
+import { PAYMENT_WEBHOOK_BODY_LIMIT } from './payments/payment-webhook.constants';
 
 const securityPolicy = {
   useDefaults: true,
@@ -30,6 +31,7 @@ export async function createApiApp(profile: LocalProfile): Promise<NestExpressAp
   const logger = createLogger(profile);
   const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(profile), {
     bufferLogs: true,
+    bodyParser: false,
   });
   app.useLogger({
     log: (message) => logger.info(message),
@@ -41,6 +43,21 @@ export async function createApiApp(profile: LocalProfile): Promise<NestExpressAp
     setLogLevels: () => undefined,
   });
   app.getHttpAdapter().getInstance().disable('x-powered-by');
+  if (profile.PAYMENT_PROVIDER === 'stripe') {
+    const stripeWebhookRawBody = raw({
+      type: 'application/json',
+      limit: PAYMENT_WEBHOOK_BODY_LIMIT,
+    });
+    app.use((request: Request, response: Response, next: NextFunction) => {
+      if (request.method === 'POST' && request.path === '/api/v1/payments/webhooks/stripe') {
+        stripeWebhookRawBody(request, response, next);
+        return;
+      }
+      next();
+    });
+  }
+  app.use(json({ limit: '64kb' }));
+  app.use(urlencoded({ extended: false, limit: '64kb' }));
   app.use((request: Request, response: Response, next: NextFunction) => {
     const received = request.header('x-request-id');
     const requestId =
@@ -61,7 +78,14 @@ export async function createApiApp(profile: LocalProfile): Promise<NestExpressAp
     origin: profile.WEB_ORIGIN,
     credentials: true,
     methods: ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'X-Request-ID', 'X-CSRF-Token', 'If-Match', 'Idempotency-Key'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Request-ID',
+      'X-CSRF-Token',
+      'If-Match',
+      'Idempotency-Key',
+    ],
     exposedHeaders: ['ETag'],
     maxAge: 600,
   });

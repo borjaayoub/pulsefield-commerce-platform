@@ -26,7 +26,6 @@ const profile = validateLocalProfile({
   API_PORT: '4000',
   WORKER_PORT: '4001',
   PAYMENT_PROVIDER: 'stub',
-  STRIPE_ENABLED: 'false',
   BILLABLE_ADAPTERS_ENABLED: 'false',
 });
 

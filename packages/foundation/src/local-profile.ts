@@ -63,10 +63,10 @@ const localProfileSchema = z
     WEB_ORIGIN: z.string().url(),
     API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
     WORKER_PORT: z.coerce.number().int().min(1).max(65535).default(4001),
-    PAYMENT_PROVIDER: z.literal('stub').default('stub'),
-    STRIPE_ENABLED: booleanFromEnvironment,
+    PAYMENT_PROVIDER: z.enum(['stub', 'stripe']).default('stub'),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().optional(),
     BILLABLE_ADAPTERS_ENABLED: booleanFromEnvironment,
   })
   .superRefine((value, context) => {
@@ -151,14 +151,6 @@ const localProfileSchema = z
       });
     }
 
-    if (value.STRIPE_ENABLED) {
-      context.addIssue({
-        code: 'custom',
-        message: 'STRIPE_ENABLED is unavailable during Phase 1; use the local payment stub.',
-        path: ['STRIPE_ENABLED'],
-      });
-    }
-
     if (
       value.STRIPE_SECRET_KEY?.startsWith('sk_live_') ||
       value.STRIPE_PUBLISHABLE_KEY?.startsWith('pk_live_')
@@ -170,7 +162,10 @@ const localProfileSchema = z
       });
     }
 
-    if (value.STRIPE_SECRET_KEY && !value.STRIPE_SECRET_KEY.startsWith('sk_test_')) {
+    if (
+      value.STRIPE_SECRET_KEY &&
+      !/^sk_test_[A-Za-z0-9][A-Za-z0-9_]*$/u.test(value.STRIPE_SECRET_KEY)
+    ) {
       context.addIssue({
         code: 'custom',
         message: 'STRIPE_SECRET_KEY must be a test-mode key when supplied.',
@@ -178,11 +173,47 @@ const localProfileSchema = z
       });
     }
 
-    if (value.STRIPE_PUBLISHABLE_KEY && !value.STRIPE_PUBLISHABLE_KEY.startsWith('pk_test_')) {
+    if (
+      value.STRIPE_PUBLISHABLE_KEY &&
+      !/^pk_test_[A-Za-z0-9][A-Za-z0-9_]*$/u.test(value.STRIPE_PUBLISHABLE_KEY)
+    ) {
       context.addIssue({
         code: 'custom',
         message: 'STRIPE_PUBLISHABLE_KEY must be a test-mode key when supplied.',
         path: ['STRIPE_PUBLISHABLE_KEY'],
+      });
+    }
+
+    if (
+      value.STRIPE_WEBHOOK_SECRET &&
+      !/^whsec_[A-Za-z0-9][A-Za-z0-9_]*$/u.test(value.STRIPE_WEBHOOK_SECRET)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'STRIPE_WEBHOOK_SECRET must be a Stripe endpoint signing secret when supplied.',
+        path: ['STRIPE_WEBHOOK_SECRET'],
+      });
+    }
+
+    const hasStripeSecret = value.STRIPE_SECRET_KEY !== undefined;
+    const hasStripePublishable = value.STRIPE_PUBLISHABLE_KEY !== undefined;
+    if (hasStripeSecret !== hasStripePublishable) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Stripe test credentials must be supplied as a complete secret/publishable pair.',
+        path: ['PAYMENT_PROVIDER'],
+      });
+    }
+
+    if (
+      value.PAYMENT_PROVIDER === 'stripe' &&
+      (!hasStripeSecret || !hasStripePublishable || !value.STRIPE_WEBHOOK_SECRET)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'PAYMENT_PROVIDER=stripe requires Stripe test credentials and a webhook signing secret.',
+        path: ['PAYMENT_PROVIDER'],
       });
     }
   });

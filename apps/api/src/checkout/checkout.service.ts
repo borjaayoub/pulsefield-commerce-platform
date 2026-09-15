@@ -17,14 +17,30 @@ import {
 import { IdempotencyService, type IdempotencyClaim } from '../idempotency/idempotency.service';
 import { AuditService } from '../audit/audit.service';
 import { digestCartToken } from '../cart/cart-cookie';
-import { CheckoutConflictError } from './checkout.errors';
+import { PaymentApplicationService } from '../payments/payment-application.service';
+import {
+  PaymentOutcomeConflictError,
+  PaymentOutcomeService,
+} from '../payments/payment-outcome.service';
+import {
+  PaymentProviderRejectedError,
+  PaymentProviderUnavailableError,
+} from '../payments/stripe-payment.provider';
+import {
+  CheckoutConflictError,
+  CheckoutPaymentUnavailableError,
+  CheckoutRequestError,
+} from './checkout.errors';
 import type {
   CreateCheckoutDto,
   CheckoutPreviewDto,
   CheckoutPreviewResponseDto,
   CheckoutResponseDto,
 } from './checkout.dto';
-import { PAYMENT_PROVIDER } from './payment-provider.token';
+import { OrderTimelineService } from '../orders/order-timeline.service';
+
+type CheckoutPayments = Pick<PaymentProvider, 'createPayment'> &
+  Partial<Pick<PaymentApplicationService, 'initialAttemptStatus' | 'provider' | 'publishableKey'>>;
 
 const TAX_NOTICE = 'Simulated tax for this local demo only; not tax advice.';
 const PHASE_3_WAREHOUSE_CODE = 'US-EAST-01';
@@ -54,7 +70,10 @@ const CHECKOUT_CART_INCLUDE = {
 } satisfies Prisma.CartInclude;
 type CheckoutCart = Prisma.CartGetPayload<{ include: typeof CHECKOUT_CART_INCLUDE }>;
 
-type Totals = CheckoutPreviewResponseDto & { policyId: string; totalWeightGrams: number };
+type Totals = Omit<CheckoutPreviewResponseDto, 'paymentProvider'> & {
+  policyId: string;
+  totalWeightGrams: number;
+};
 export type CheckoutPolicy = {
   id: string;
   version: number;
@@ -205,7 +224,15 @@ export class CheckoutService {
     private readonly prisma: PrismaService,
     private readonly idempotency: IdempotencyService,
     private readonly audit: AuditService,
-    @Inject(PAYMENT_PROVIDER) private readonly payments: Pick<PaymentProvider, 'createPayment'>,
+    @Inject(PaymentApplicationService) private readonly payments: CheckoutPayments,
+    @Inject(OrderTimelineService)
+    private readonly orderTimeline: Pick<OrderTimelineService, 'issue'> = {
+      issue: async () => ({ token: 'test-only-guest-order-token', expiresAt: new Date(0) }),
+    },
+    private readonly paymentOutcomes: PaymentOutcomeService = new PaymentOutcomeService(
+      prisma,
+      audit,
+    ),
   ) {}
 
   async preview(
@@ -226,7 +253,10 @@ export class CheckoutService {
         cart.revision,
       );
     await this.assertCurrentAvailability(cart);
-    return this.calculate(cart, policy, body);
+    return {
+      ...this.calculate(cart, policy, body),
+      paymentProvider: this.configuredPaymentProvider,
+    };
   }
 
   async create(
@@ -248,6 +278,7 @@ export class CheckoutService {
         'IDEMPOTENCY_KEY_REQUIRED',
         'An idempotency key is required for checkout.',
       );
+    this.assertPaymentRequest(body.paymentMethodReference);
     const cartIdentity = await this.prisma.cart.findUnique({
       where: { tokenDigest: digestCartToken(token) },
       select: { id: true, status: true, revision: true, expiresAt: true, absoluteExpiresAt: true },
@@ -268,7 +299,8 @@ export class CheckoutService {
           cartId: cartIdentity.id,
           revision: expectedRevision,
           pricingFingerprint: body.pricingFingerprint,
-          paymentMethodReference: body.paymentMethodReference,
+          paymentProvider: this.configuredPaymentProvider,
+          paymentMethodReference: body.paymentMethodReference ?? null,
           shippingAddress: toIdempotencyShippingAddress(body.shippingAddress),
         },
       },
@@ -329,24 +361,141 @@ export class CheckoutService {
       where: { id: orderId },
       include: { paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });
-    const result = await this.payments.createPayment(
-      {
-        orderId,
-        amount: { amountMinor: pending.totalMinor, currency: 'USD' },
-        paymentMethodReference: body.paymentMethodReference,
-        metadata: { orderReference: pending.reference },
+    return this.preparePayment(pending, requestId);
+  }
+
+  private get configuredPaymentProvider(): 'stub' | 'stripe' {
+    return this.payments.provider ?? 'stub';
+  }
+
+  private assertPaymentRequest(reference: CreateCheckoutDto['paymentMethodReference']): void {
+    if (
+      (this.configuredPaymentProvider === 'stub' && reference === undefined) ||
+      (this.configuredPaymentProvider === 'stripe' && reference !== undefined)
+    ) {
+      throw new CheckoutRequestError();
+    }
+  }
+
+  private async preparePayment(
+    order: {
+      id: string;
+      cartId: string;
+      reference: string;
+      totalMinor: bigint;
+      paymentAttempts: Array<{
+        id: string;
+        status: PaymentAttemptStatus;
+        provider: string;
+        paymentMethodReference: string;
+        providerPaymentId: string | null;
+      }>;
+    },
+    requestId: string,
+  ): Promise<CheckoutResponseDto> {
+    const attempt = order.paymentAttempts[0];
+    if (!attempt || attempt.provider !== this.configuredPaymentProvider) {
+      throw new CheckoutPaymentUnavailableError();
+    }
+    try {
+      const result = await this.payments.createPayment(
+        {
+          orderId: order.id,
+          amount: { amountMinor: order.totalMinor, currency: 'USD' },
+          ...(this.configuredPaymentProvider === 'stub'
+            ? { paymentMethodReference: attempt.paymentMethodReference }
+            : {}),
+          ...(attempt.providerPaymentId ? { providerPaymentId: attempt.providerPaymentId } : {}),
+          metadata: {
+            paymentAttemptId: attempt.id,
+            orderReference: order.reference,
+          },
+        },
+        {
+          idempotencyKey: `checkout-${digestKey({ orderId: order.id, attemptId: attempt.id })}`,
+          requestId,
+          correlationId: requestId,
+          actor: { type: 'customer', id: order.cartId, roles: [] },
+        },
+      );
+      if (this.configuredPaymentProvider === 'stripe') {
+        await this.attachProviderIdentity(attempt.id, result.paymentId);
+        if (!result.clientSecret || !this.payments.publishableKey) {
+          throw new CheckoutPaymentUnavailableError();
+        }
+        return this.responseFor(order.id, {
+          publishableKey: this.payments.publishableKey,
+          clientSecret: result.clientSecret,
+        });
+      }
+      if (result.status !== 'succeeded' && result.status !== 'failed')
+        return this.responseFor(order.id);
+      const terminalStatus = result.status;
+      await this.withRetry(() =>
+        this.paymentOutcomes.apply({
+          orderId: order.id,
+          paymentAttemptId: attempt.id,
+          status: terminalStatus,
+          providerPaymentId: result.paymentId,
+          requestId,
+        }),
+      );
+      return this.responseFor(order.id);
+    } catch (error) {
+      if (error instanceof PaymentOutcomeConflictError) {
+        throw new CheckoutConflictError(
+          'CHECKOUT_RESULT_CONFLICT',
+          'Checkout result could not be applied safely.',
+        );
+      }
+      if (this.configuredPaymentProvider !== 'stripe') throw error;
+      if (error instanceof PaymentProviderRejectedError) {
+        await this.withRetry(() =>
+          this.paymentOutcomes.apply({
+            orderId: order.id,
+            paymentAttemptId: attempt.id,
+            status: 'failed',
+            requestId,
+            failureCode: 'PAYMENT_PROVIDER_REJECTED',
+          }),
+        );
+      }
+      if (
+        error instanceof PaymentProviderRejectedError ||
+        error instanceof PaymentProviderUnavailableError ||
+        error instanceof CheckoutPaymentUnavailableError
+      ) {
+        throw new CheckoutPaymentUnavailableError();
+      }
+      throw error;
+    }
+  }
+
+  private async attachProviderIdentity(
+    attemptId: string,
+    providerPaymentId: string,
+  ): Promise<void> {
+    const changed = await this.prisma.paymentAttempt.updateMany({
+      where: {
+        id: attemptId,
+        provider: 'stripe',
+        status: PaymentAttemptStatus.REQUIRES_PAYMENT_METHOD,
+        providerPaymentId: null,
       },
-      {
-        idempotencyKey: `checkout-${digestKey({ orderId, payment: body.paymentMethodReference })}`,
-        requestId,
-        correlationId: requestId,
-        actor: { type: 'customer', id: cart.id, roles: [] },
-      },
-    );
-    await this.withRetry(() =>
-      this.applyPaymentResult(orderId, result.status, result.paymentId, requestId),
-    );
-    return this.responseFor(orderId);
+      data: { providerPaymentId, providerReference: providerPaymentId },
+    });
+    if (changed.count === 1) return;
+    const current = await this.prisma.paymentAttempt.findUnique({
+      where: { id: attemptId },
+      select: { providerPaymentId: true, status: true },
+    });
+    if (
+      current?.providerPaymentId !== providerPaymentId ||
+      (current.status !== PaymentAttemptStatus.REQUIRES_PAYMENT_METHOD &&
+        current.status !== PaymentAttemptStatus.PROCESSING)
+    ) {
+      throw new CheckoutPaymentUnavailableError();
+    }
   }
 
   private async loadOpenCart(
@@ -709,8 +858,9 @@ export class CheckoutService {
         await tx.paymentAttempt.create({
           data: {
             orderId: order.id,
-            provider: 'stub',
-            paymentMethodReference: body.paymentMethodReference,
+            provider: this.configuredPaymentProvider,
+            status: this.payments.initialAttemptStatus ?? PaymentAttemptStatus.PROCESSING,
+            paymentMethodReference: body.paymentMethodReference ?? 'stripe-card',
             amountMinor: authoritativeTotals.totalMinor,
             currencyCode: 'USD',
           },
@@ -750,276 +900,10 @@ export class CheckoutService {
     );
   }
 
-  private async applyPaymentResult(
+  private async responseFor(
     orderId: string,
-    status: 'succeeded' | 'failed' | 'processing' | 'requires_payment_method',
-    providerPaymentId: string,
-    requestId: string,
-  ): Promise<void> {
-    await this.prisma.$transaction(
-      async (tx) => {
-        await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`;
-        const lockedOrder = await tx.order.findUniqueOrThrow({
-          where: { id: orderId },
-          select: { reservationId: true },
-        });
-        await tx.$queryRaw`SELECT "id" FROM "InventoryReservation" WHERE "id" = ${lockedOrder.reservationId} FOR UPDATE`;
-        await tx.$queryRaw`
-          SELECT "id"
-          FROM "PaymentAttempt"
-          WHERE "orderId" = ${orderId}
-          ORDER BY "createdAt" DESC, "id" DESC
-          FOR UPDATE
-        `;
-        const order = await tx.order.findUniqueOrThrow({
-          where: { id: orderId },
-          include: {
-            lines: true,
-            reservation: { include: { items: true } },
-            paymentAttempts: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 },
-            fulfillmentGroups: { include: { items: true } },
-          },
-        });
-        const attempt = order.paymentAttempts[0];
-        if (!attempt)
-          throw new CheckoutConflictError(
-            'CHECKOUT_RESULT_CONFLICT',
-            'Checkout result could not be applied safely.',
-          );
-        const reservationItems = [...order.reservation.items].sort(
-          (left, right) =>
-            left.variantId.localeCompare(right.variantId) ||
-            left.warehouseId.localeCompare(right.warehouseId),
-        );
-        const variantIds = [...new Set(reservationItems.map((item) => item.variantId))];
-        const warehouseIds = [...new Set(reservationItems.map((item) => item.warehouseId))];
-        if (variantIds.length === 0 || warehouseIds.length === 0)
-          throw new CheckoutConflictError(
-            'CHECKOUT_RESULT_CONFLICT',
-            'Checkout result could not be applied safely.',
-          );
-        await tx.$queryRaw`
-          SELECT "id"
-          FROM "InventoryBalance"
-          WHERE "variantId" IN (${Prisma.join(variantIds)})
-            AND "warehouseId" IN (${Prisma.join(warehouseIds)})
-          ORDER BY "variantId" ASC, "warehouseId" ASC, "id" ASC
-          FOR UPDATE
-        `;
-        const balances = await tx.inventoryBalance.findMany({
-          where: { variantId: { in: variantIds }, warehouseId: { in: warehouseIds } },
-          orderBy: [{ variantId: 'asc' }, { warehouseId: 'asc' }, { id: 'asc' }],
-        });
-        const balanceByKey = new Map(
-          balances.map((balance) => [`${balance.warehouseId}:${balance.variantId}`, balance]),
-        );
-        const [{ now }] = await tx.$queryRaw<
-          Array<{ now: Date }>
-        >`SELECT CURRENT_TIMESTAMP AS "now"`;
-        const incomingTerminal = status === 'succeeded' || status === 'failed';
-        if (attempt.status !== PaymentAttemptStatus.PROCESSING) {
-          const sameOutcome =
-            (status === 'succeeded' && attempt.status === PaymentAttemptStatus.SUCCEEDED) ||
-            (status === 'failed' && attempt.status === PaymentAttemptStatus.FAILED);
-          if (!sameOutcome || attempt.providerPaymentId !== providerPaymentId)
-            throw new CheckoutConflictError(
-              'CHECKOUT_RESULT_CONFLICT',
-              'Checkout result could not be applied safely.',
-            );
-          const committed = attempt.status === PaymentAttemptStatus.SUCCEEDED;
-          const expiredFailure =
-            !committed &&
-            attempt.failureCode === 'RESERVATION_EXPIRED' &&
-            order.reservation.status === ReservationStatus.EXPIRED;
-          const movementType = committed
-            ? InventoryMovementType.RESERVATION_COMMITTED
-            : expiredFailure
-              ? InventoryMovementType.RESERVATION_EXPIRED
-              : InventoryMovementType.RESERVATION_RELEASED;
-          const movementCount = await tx.inventoryMovement.count({
-            where: { commandId: order.reservationId, type: movementType },
-          });
-          const hasExpectedFulfillment = committed
-            ? order.fulfillmentGroups.some(
-                (group) =>
-                  group.status === 'ALLOCATED' &&
-                  group.items.length === reservationItems.length &&
-                  group.items.every((item) =>
-                    order.lines.some(
-                      (line) => line.id === item.orderLineId && item.quantity === line.quantity,
-                    ),
-                  ),
-              )
-            : order.fulfillmentGroups.length === 0;
-          const cart = await tx.cart.findUniqueOrThrow({
-            where: { id: order.cartId },
-            include: { items: true },
-          });
-          const failedStateComplete =
-            order.status === OrderStatus.PENDING_PAYMENT &&
-            order.reservation.status ===
-              (expiredFailure ? ReservationStatus.EXPIRED : ReservationStatus.RELEASED) &&
-            cart.status === CartStatus.OPEN &&
-            hasExpectedFulfillment &&
-            ((expiredFailure && attempt.failureCode === 'RESERVATION_EXPIRED') ||
-              (!expiredFailure && attempt.failureCode !== 'RESERVATION_EXPIRED'));
-          const terminalStateComplete =
-            movementCount === reservationItems.length &&
-            ((committed &&
-              order.status === OrderStatus.CONFIRMED &&
-              order.reservation.status === ReservationStatus.COMMITTED &&
-              hasExpectedFulfillment) ||
-              (!committed && failedStateComplete));
-          if (
-            !terminalStateComplete ||
-            (committed && (cart.status !== CartStatus.CONVERTED || cart.items.length !== 0)) ||
-            (!committed && cart.status !== CartStatus.OPEN)
-          )
-            throw new CheckoutConflictError(
-              'CHECKOUT_RESULT_CONFLICT',
-              'Checkout result could not be applied safely.',
-            );
-          return;
-        }
-        if (!incomingTerminal) return;
-        const expired = order.reservation.expiresAt <= now;
-        const succeeded = status === 'succeeded' && !expired;
-        const failedReservationStatus = expired
-          ? ReservationStatus.EXPIRED
-          : ReservationStatus.RELEASED;
-        const failedMovementType = expired
-          ? InventoryMovementType.RESERVATION_EXPIRED
-          : InventoryMovementType.RESERVATION_RELEASED;
-        const failedMovementSequenceBase = expired ? 2000 : 1000;
-        const reservationChanged = await tx.inventoryReservation.updateMany({
-          where: { id: order.reservationId, status: ReservationStatus.ACTIVE },
-          data: {
-            status: succeeded ? ReservationStatus.COMMITTED : failedReservationStatus,
-          },
-        });
-        if (reservationChanged.count !== 1)
-          throw new CheckoutConflictError(
-            'CHECKOUT_RESULT_CONFLICT',
-            'Checkout result could not be applied safely.',
-          );
-        for (const [sequence, item] of reservationItems.entries()) {
-          const balance = balanceByKey.get(`${item.warehouseId}:${item.variantId}`);
-          if (!balance || balance.reserved < item.quantity)
-            throw new CheckoutConflictError(
-              'CHECKOUT_RESULT_CONFLICT',
-              'Checkout result could not be applied safely.',
-            );
-          const updated = await tx.inventoryBalance.update({
-            where: { id: balance.id },
-            data: succeeded
-              ? {
-                  reserved: { decrement: item.quantity },
-                  allocated: { increment: item.quantity },
-                  version: { increment: 1 },
-                }
-              : { reserved: { decrement: item.quantity }, version: { increment: 1 } },
-          });
-          await tx.inventoryMovement.create({
-            data: {
-              warehouseId: item.warehouseId,
-              variantId: item.variantId,
-              type: succeeded ? InventoryMovementType.RESERVATION_COMMITTED : failedMovementType,
-              reservedDelta: -item.quantity,
-              allocatedDelta: succeeded ? item.quantity : 0,
-              resultingOnHand: updated.onHand,
-              resultingReserved: updated.reserved,
-              resultingAllocated: updated.allocated,
-              resultingDamaged: updated.damaged,
-              commandId: order.reservationId,
-              commandSequence: (succeeded ? 1000 : failedMovementSequenceBase) + sequence,
-              actorType: AuditActorType.SYSTEM,
-              actorId: 'checkout',
-              reason: succeeded ? 'payment-succeeded' : 'payment-failed',
-            },
-          });
-        }
-        const changed = await tx.paymentAttempt.updateMany({
-          where: { id: attempt.id, status: PaymentAttemptStatus.PROCESSING },
-          data: {
-            status: succeeded ? PaymentAttemptStatus.SUCCEEDED : PaymentAttemptStatus.FAILED,
-            providerPaymentId,
-            providerReference: providerPaymentId,
-            failureCode: succeeded ? null : expired ? 'RESERVATION_EXPIRED' : 'PAYMENT_DECLINED',
-          },
-        });
-        if (changed.count !== 1)
-          throw new CheckoutConflictError(
-            'CHECKOUT_RESULT_CONFLICT',
-            'Checkout result could not be applied safely.',
-          );
-        if (succeeded) {
-          await tx.order.update({
-            where: { id: order.id },
-            data: { status: OrderStatus.CONFIRMED },
-          });
-          const group = await tx.fulfillmentGroup.create({
-            data: { orderId: order.id, warehouseId: order.reservation.items[0]!.warehouseId },
-          });
-          await tx.fulfillmentGroupItem.createMany({
-            data: reservationItems.map((item) => ({
-              fulfillmentGroupId: group.id,
-              orderLineId: order.lines.find((line) => line.variantId === item.variantId)!.id,
-              quantity: item.quantity,
-            })),
-          });
-          await tx.cartItem.deleteMany({ where: { cartId: order.cartId } });
-          await tx.cart.update({
-            where: { id: order.cartId },
-            data: { status: CartStatus.CONVERTED, revision: { increment: 1 } },
-          });
-        } else
-          await tx.cart.update({
-            where: { id: order.cartId },
-            data: { status: CartStatus.OPEN, revision: { increment: 1 } },
-          });
-        const commandKey = digestKey({
-          orderId,
-          providerPaymentId,
-          outcome: succeeded ? 'succeeded' : 'failed',
-        }).slice(0, 64);
-        await this.audit.append(
-          tx,
-          {
-            action: succeeded ? 'commerce.order.confirmed' : 'commerce.payment.failed',
-            targetType: 'order',
-            targetId: order.id,
-            afterMetadata: { outcome: succeeded ? 'confirmed' : 'paymentFailed' },
-          },
-          {
-            idempotencyKey: `checkout-${commandKey}`,
-            requestId,
-            correlationId: requestId,
-            actor: { type: 'system', id: 'checkout', roles: [] },
-            reason: succeeded
-              ? 'Apply local payment-stub success.'
-              : 'Apply local payment-stub failure.',
-          },
-        );
-        await tx.outboxMessage.create({
-          data: {
-            eventType: succeeded ? 'commerce.order.confirmed' : 'commerce.payment.failed',
-            eventVersion: 1,
-            aggregateType: 'order',
-            aggregateId: order.id,
-            payload: {
-              orderId: order.id,
-              orderReference: order.reference,
-              outcome: succeeded ? 'confirmed' : 'payment_failed',
-            },
-            correlationId: requestId,
-          },
-        });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
-  }
-
-  private async responseFor(orderId: string): Promise<CheckoutResponseDto> {
+    paymentConfiguration?: { publishableKey: string; clientSecret: string },
+  ): Promise<CheckoutResponseDto> {
     const order = await this.prisma.order.findUniqueOrThrow({
       where: { id: orderId },
       include: {
@@ -1031,6 +915,10 @@ export class CheckoutService {
       },
     });
     const payment = order.paymentAttempts[0];
+    if (!payment || (payment.provider !== 'stub' && payment.provider !== 'stripe')) {
+      throw new CheckoutPaymentUnavailableError();
+    }
+    const guestAccess = await this.orderTimeline.issue(order.id);
     return {
       orderId: order.id,
       orderReference: order.reference,
@@ -1055,12 +943,21 @@ export class CheckoutService {
           : '',
       taxNotice: TAX_NOTICE,
       orderStatus: order.status === OrderStatus.CONFIRMED ? 'confirmed' : 'pending_payment',
+      paymentProvider: payment.provider,
       paymentStatus:
         payment?.status === PaymentAttemptStatus.SUCCEEDED
           ? 'succeeded'
           : payment?.status === PaymentAttemptStatus.FAILED
             ? 'failed'
-            : 'processing',
+            : payment?.status === PaymentAttemptStatus.REQUIRES_PAYMENT_METHOD
+              ? 'requires_payment_method'
+              : 'processing',
+      ...(paymentConfiguration &&
+      payment.provider === 'stripe' &&
+      (payment.status === PaymentAttemptStatus.REQUIRES_PAYMENT_METHOD ||
+        payment.status === PaymentAttemptStatus.PROCESSING)
+        ? { paymentConfiguration }
+        : {}),
       reservationStatus:
         order.reservation.status === ReservationStatus.COMMITTED
           ? 'committed'
@@ -1082,6 +979,8 @@ export class CheckoutService {
                   ? 'delivered'
                   : null,
       reservationExpiresAt: order.reservation.expiresAt.toISOString(),
+      guestOrderAccessToken: guestAccess.token,
+      guestOrderAccessExpiresAt: guestAccess.expiresAt.toISOString(),
       checkoutStatus:
         order.status === OrderStatus.CONFIRMED
           ? 'confirmed'
@@ -1099,25 +998,11 @@ export class CheckoutService {
     const attempt = order.paymentAttempts[0];
     if (
       order.status === OrderStatus.PENDING_PAYMENT &&
-      attempt?.status === PaymentAttemptStatus.PROCESSING
+      attempt &&
+      (attempt.status === PaymentAttemptStatus.REQUIRES_PAYMENT_METHOD ||
+        attempt.status === PaymentAttemptStatus.PROCESSING)
     ) {
-      const result = await this.payments.createPayment(
-        {
-          orderId,
-          amount: { amountMinor: order.totalMinor, currency: 'USD' },
-          paymentMethodReference: attempt.paymentMethodReference,
-          metadata: { orderReference: order.reference },
-        },
-        {
-          idempotencyKey: `checkout-${digestKey({ orderId, payment: attempt.paymentMethodReference })}`,
-          requestId,
-          correlationId: requestId,
-          actor: { type: 'customer', id: order.cartId, roles: [] },
-        },
-      );
-      await this.withRetry(() =>
-        this.applyPaymentResult(orderId, result.status, result.paymentId, requestId),
-      );
+      return this.preparePayment(order, requestId);
     }
     return this.responseFor(orderId);
   }

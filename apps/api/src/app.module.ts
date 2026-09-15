@@ -24,7 +24,7 @@ export class AppModule {
         DatabaseModule.forRoot(profile.DATABASE_URL),
         CatalogModule,
         CartModule,
-        CheckoutModule,
+        CheckoutModule.forRoot(profile),
         FulfillmentModule,
         ReservationExpiryModule.forRoot(profile),
         OperationsModule.forRoot(profile),

@@ -18,9 +18,17 @@ describe('web CSP', () => {
     expect(policy).toContain("img-src 'self' data: blob:");
     expect(policy).toContain("font-src 'self'");
     expect(policy).toContain("style-src 'self' 'unsafe-inline'");
-    expect(policy).toContain("script-src 'self' 'nonce-nonce-test'");
+    expect(policy).toContain(
+      "script-src 'self' 'nonce-nonce-test' https://js.stripe.com https://*.js.stripe.com",
+    );
     expect(policy).not.toContain("script-src 'self' 'unsafe-inline'");
-    expect(policy).toContain("connect-src 'self' http://localhost:4000");
+    expect(policy).toContain("connect-src 'self' http://localhost:4000 https://api.stripe.com");
+    expect(policy).toContain(
+      'frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com',
+    );
+    expect(policy).not.toContain('maps.googleapis.com');
+    expect(policy).not.toContain('link.com');
+    expect(policy).not.toContain('checkout.stripe.com');
     expect(policy).toContain("form-action 'self'");
     expect(policy).not.toContain("'unsafe-eval'");
   });
@@ -47,7 +55,7 @@ describe('web CSP', () => {
     ]) {
       expect(safeApiOrigin(value)).toBe('http://localhost:4000');
       expect(buildContentSecurityPolicy('nonce-safe', false, value)).toContain(
-        "connect-src 'self' http://localhost:4000",
+        "connect-src 'self' http://localhost:4000 https://api.stripe.com",
       );
       expect(buildContentSecurityPolicy('nonce-safe', false, value)).not.toContain(value);
     }

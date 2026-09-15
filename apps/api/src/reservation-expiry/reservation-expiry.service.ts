@@ -125,14 +125,19 @@ export class ReservationExpiryService {
         if (!order || order.status !== OrderStatus.PENDING_PAYMENT) {
           throw new ReservationExpiryConflictError();
         }
-        const processingPayments = await tx.paymentAttempt.findMany({
-          where: { orderId: order.id, status: PaymentAttemptStatus.PROCESSING },
+        const activePayments = await tx.paymentAttempt.findMany({
+          where: {
+            orderId: order.id,
+            status: {
+              in: [PaymentAttemptStatus.REQUIRES_PAYMENT_METHOD, PaymentAttemptStatus.PROCESSING],
+            },
+          },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         });
-        if (processingPayments.length !== 1) {
+        if (activePayments.length !== 1) {
           throw new ReservationExpiryConflictError();
         }
-        const payment = processingPayments[0]!;
+        const payment = activePayments[0]!;
 
         const variantIds = [...new Set(reservation.items.map((item) => item.variantId))].sort();
         const warehouseIds = [...new Set(reservation.items.map((item) => item.warehouseId))].sort();
@@ -186,12 +191,18 @@ export class ReservationExpiryService {
         if (reservationChanged.count !== 1) throw new ReservationExpiryConflictError();
 
         const expiryPaymentId = `expiry-${reservation.id}`;
+        const needsStubExpiryIdentity =
+          payment.provider === 'stub' && payment.providerPaymentId === null;
         const paymentChanged = await tx.paymentAttempt.updateMany({
-          where: { id: payment.id, status: PaymentAttemptStatus.PROCESSING },
+          where: { id: payment.id, status: payment.status },
           data: {
             status: PaymentAttemptStatus.FAILED,
-            providerPaymentId: expiryPaymentId,
-            providerReference: expiryPaymentId,
+            ...(needsStubExpiryIdentity
+              ? {
+                  providerPaymentId: expiryPaymentId,
+                  providerReference: expiryPaymentId,
+                }
+              : {}),
             failureCode: 'RESERVATION_EXPIRED',
           },
         });

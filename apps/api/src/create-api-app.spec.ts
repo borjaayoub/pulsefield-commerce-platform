@@ -46,7 +46,6 @@ const profile = validateLocalProfile({
   API_PORT: '4000',
   WORKER_PORT: '4001',
   PAYMENT_PROVIDER: 'stub',
-  STRIPE_ENABLED: 'false',
   BILLABLE_ADAPTERS_ENABLED: 'false',
 });
 
@@ -1047,6 +1046,7 @@ describe('API foundation', () => {
     expect(response.body.paths).toHaveProperty(
       '/api/v1/staff/notification-deliveries/{deliveryId}/replays.post',
     );
+    expect(response.body.paths).not.toHaveProperty('/api/v1/payments/webhooks/stripe');
     expect(response.body.components.securitySchemes['session-cookie']).toMatchObject({
       type: 'apiKey',
       in: 'cookie',

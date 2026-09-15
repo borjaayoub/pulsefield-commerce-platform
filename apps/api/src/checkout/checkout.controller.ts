@@ -84,6 +84,7 @@ export class CheckoutController {
   @ApiCreatedResponse({ type: CheckoutResponseDto })
   @ApiResponse({ status: 409, type: ProblemDetailsDto })
   @ApiResponse({ status: 428, type: ProblemDetailsDto })
+  @ApiResponse({ status: 503, type: ProblemDetailsDto })
   async create(
     @Body() body: CreateCheckoutDto,
     @Headers('if-match') ifMatch: string | undefined,

@@ -16,3 +16,11 @@ export class CheckoutRequestError extends Error {
     super('The checkout request is invalid.');
   }
 }
+
+export class CheckoutPaymentUnavailableError extends Error {
+  readonly code = 'PAYMENT_PROVIDER_UNAVAILABLE';
+
+  constructor() {
+    super('Payment setup is temporarily unavailable. Try again later.');
+  }
+}

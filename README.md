@@ -4,9 +4,9 @@ This repository is a portfolio-grade, modular e-commerce platform built in demon
 
 ## Current milestone
 
-Phase 1, **Architecture and delivery foundation**, Phase 2, **Identity and reliable messaging foundation**, and Phase 3, **Reference vertical slice**, are complete as of 2026-09-12. Phase 3 includes the deterministic US/USD catalog and inventory foundation, public storefront discovery, a persistent anonymous cart, policy-versioned checkout with a local payment stub, reservation/order snapshots, bounded reservation expiry, linear staff fulfillment transitions, local SVG product media, accessible storefront pages, protected operations projections, staff MFA, deterministic demo reset, and the complete browser acceptance journey. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for exact final evidence and the canonical-wrapper `ENOMEM` caveat.
+Phase 1, **Architecture and delivery foundation**, Phase 2, **Identity and reliable messaging foundation**, and Phase 3, **Reference vertical slice**, are complete. Phase 4 is in progress: completed Slices 4.1–4.5b add the verified-payment lifecycle foundation, optional Stripe test-mode PaymentIntent preparation and embedded Payment Element, a signed durable webhook pipeline, authoritative reconciliation, one-time late-success allocation, idempotent full compensation, and a secure guest order timeline while preserving the zero-network stub default. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for exact evidence and the canonical-wrapper `ENOMEM` caveat.
 
-The protected Phase 3 operations dashboard is available at `/operations` after staff password and local TOTP MFA authentication. It uses masked, read-only projections; only fulfillers can advance the existing fulfillment path. The checkout and fulfillment path use only the non-networked stub and seeded `US-EAST-01` warehouse; no Stripe or hosted payment service is required.
+The protected Phase 3 operations dashboard is available at `/operations` after staff password and local TOTP MFA authentication. It uses masked, read-only projections; only fulfillers can advance the existing fulfillment path. Checkout defaults to the non-networked stub and seeded `US-EAST-01` warehouse; no Stripe or hosted payment service is required. Optional Stripe mode is test-only: it mounts the embedded Payment Element after server-owned checkout preparation, and only the verified asynchronous webhook/reconciliation path may confirm payment. Checkout now links guests to a digest-protected, expiring order timeline; order email remains a later slice.
 
 ## Quick start
 
@@ -59,10 +59,10 @@ With the worker and local services running, `pnpm smoke:messaging` publishes an 
 - Non-Mailpit SMTP hosts or external SMTP permission
 - Missing or malformed local queue-message encryption keys
 - Live Stripe key formats
-- Stripe activation in the default local profile
+- Live, malformed, or incomplete Stripe credential or webhook-secret configuration
 - Any enabled billable provider adapter
 
-The default payment provider is a non-networked stub. No Stripe account, Stripe CLI, email service, hosted database, managed Redis, deployment, or real recipient is needed for this milestone.
+The default payment provider is a non-networked stub. Optional Stripe mode requires an ignored test-key pair and `whsec_` endpoint signing secret; automated acceptance still makes no Stripe network calls. No Stripe account, Stripe CLI, email service, hosted database, managed Redis, deployment, or real recipient is needed for the default profile.
 
 When rotating the ignored local message-encryption key, use `pnpm local:rotate-message-key`, `pnpm local:reencrypt-totp-secrets`, and `pnpm local:complete-message-key-rotation` in the documented order. Do not replace the key by hand: it also protects staff TOTP data and queued notification payloads.
 

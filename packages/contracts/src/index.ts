@@ -42,14 +42,29 @@ export interface DomainEventEnvelope<TPayload> {
 export interface CreatePaymentInput {
   orderId: string;
   amount: Money;
-  paymentMethodReference: string;
-  metadata: Record<string, string>;
+  paymentMethodReference?: string;
+  providerPaymentId?: string;
+  metadata: {
+    paymentAttemptId: string;
+    orderReference: string;
+  };
 }
 
 export interface PaymentResult {
   paymentId: string;
   status: 'requires_payment_method' | 'processing' | 'succeeded' | 'failed';
   clientSecret?: string;
+}
+
+export interface RetrievePaymentInput {
+  orderId: string;
+  paymentId: string;
+  paymentMethodReference?: string;
+  amount: Money;
+  metadata: {
+    paymentAttemptId: string;
+    orderReference: string;
+  };
 }
 
 export interface PaymentEvent {
@@ -73,6 +88,7 @@ export interface RefundResult {
 
 export interface PaymentProvider {
   createPayment(input: CreatePaymentInput, context: CommandContext): Promise<PaymentResult>;
+  retrievePayment(input: RetrievePaymentInput): Promise<PaymentResult>;
   verifyWebhook(payload: unknown, signature: string): Promise<PaymentEvent>;
   cancel(paymentId: string, context: CommandContext): Promise<void>;
   refund(input: RefundInput, context: CommandContext): Promise<RefundResult>;
@@ -148,6 +164,13 @@ export const SEND_EMAIL_VERIFICATION_JOB = 'send-email-verification.v1';
 export const SEND_PASSWORD_RECOVERY_JOB = 'send-password-recovery.v1';
 export const NOTIFICATION_DEAD_LETTER_JOB = 'notification-dead-letter.v1';
 export const NOTIFICATION_DELIVERY_OUTCOME_JOB = 'notification-delivery-outcome.v1';
+export const PAYMENT_WEBHOOK_INBOX_QUEUE = 'payment-webhook-inbox';
+export const PROCESS_PAYMENT_WEBHOOK_JOB = 'process-payment-webhook.v1';
+
+export interface PaymentWebhookInboxJobData {
+  version: 1;
+  inboxId: string;
+}
 
 export interface EncryptedMessageEnvelope {
   version: 1;

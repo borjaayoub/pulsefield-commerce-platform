@@ -20,7 +20,6 @@ const profile = validateLocalProfile({
   API_PORT: '4000',
   WORKER_PORT: '4001',
   PAYMENT_PROVIDER: 'stub',
-  STRIPE_ENABLED: 'false',
   BILLABLE_ADAPTERS_ENABLED: 'false',
 });
 
@@ -39,6 +38,7 @@ describe('API logger redaction', () => {
       req: {
         headers: {
           cookie: 'pulse_field_session=raw-session-id',
+          'stripe-signature': 't=1,v1=raw-webhook-signature',
           'x-csrf-token': 'raw-csrf-token',
         },
         body: {
@@ -58,6 +58,7 @@ describe('API logger redaction', () => {
 
     expect(output).toContain('[REDACTED]');
     expect(output).not.toContain('raw-session-id');
+    expect(output).not.toContain('raw-webhook-signature');
     expect(output).not.toContain('outbound-session-id');
     expect(output).not.toContain('raw-csrf-token');
     expect(output).not.toContain('plain-password');

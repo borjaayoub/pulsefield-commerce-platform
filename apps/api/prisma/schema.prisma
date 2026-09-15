@@ -43,24 +43,24 @@ enum IdempotencyStatus {
 }
 
 model IdempotencyRecord {
-  id                 String            @id @default(uuid()) @db.Uuid
-  actorType          AuditActorType
-  actorId            String            @db.VarChar(128)
-  operation          String            @db.VarChar(128)
-  keyDigest          String            @db.Char(64)
-  requestFingerprint String            @db.Char(64)
-  status             IdempotencyStatus @default(IN_PROGRESS)
-  claimTokenDigest   String?           @db.Char(64)
-  lockedUntil        DateTime?
-  attemptCount       Int               @default(1)
-  resultType         String?           @db.VarChar(128)
-  resultId           String?           @db.VarChar(128)
-  responseStatus     Int?
-  lastErrorCode      String?           @db.VarChar(64)
-  completedAt        DateTime?
-  expiresAt          DateTime
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  id                          String                       @id @default(uuid()) @db.Uuid
+  actorType                   AuditActorType
+  actorId                     String                       @db.VarChar(128)
+  operation                   String                       @db.VarChar(128)
+  keyDigest                   String                       @db.Char(64)
+  requestFingerprint          String                       @db.Char(64)
+  status                      IdempotencyStatus            @default(IN_PROGRESS)
+  claimTokenDigest            String?                      @db.Char(64)
+  lockedUntil                 DateTime?
+  attemptCount                Int                          @default(1)
+  resultType                  String?                      @db.VarChar(128)
+  resultId                    String?                      @db.VarChar(128)
+  responseStatus              Int?
+  lastErrorCode               String?                      @db.VarChar(64)
+  completedAt                 DateTime?
+  expiresAt                   DateTime
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
   fulfillmentTransitionResult FulfillmentTransitionResult?
 
   @@unique([actorType, actorId, operation, keyDigest])
@@ -199,9 +199,36 @@ enum ReservationStatus {
 enum OrderStatus {
   PENDING_PAYMENT
   CONFIRMED
+  MANUAL_RESOLUTION
 }
 
 enum PaymentAttemptStatus {
+  REQUIRES_PAYMENT_METHOD
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum PaymentWebhookEventType {
+  REQUIRES_PAYMENT_METHOD
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum PaymentWebhookInboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  TERMINAL_FAILURE
+}
+
+enum PaymentCompensationReason {
+  LATE_SUCCESS_STOCK_UNAVAILABLE
+}
+
+enum PaymentCompensationStatus {
+  REQUIRED
   PROCESSING
   SUCCEEDED
   FAILED
@@ -364,19 +391,19 @@ model ProductSlug {
 }
 
 model ProductVariant {
-  id                  String              @id @default(uuid()) @db.Uuid
-  product             Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
-  productId           String              @db.Uuid
-  sku                 String              @unique @db.VarChar(64)
-  name                String              @db.VarChar(160)
-  optionSchemaVersion Int                 @default(1)
+  id                  String                     @id @default(uuid()) @db.Uuid
+  product             Product                    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productId           String                     @db.Uuid
+  sku                 String                     @unique @db.VarChar(64)
+  name                String                     @db.VarChar(160)
+  optionSchemaVersion Int                        @default(1)
   optionValues        Json
   weightGrams         Int
-  taxClass            String              @db.VarChar(64)
-  status              CatalogLifecycle    @default(DRAFT)
+  taxClass            String                     @db.VarChar(64)
+  status              CatalogLifecycle           @default(DRAFT)
   archivedAt          DateTime?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
   prices              VariantPrice[]
   inventoryBalances   InventoryBalance[]
   inventoryMovements  InventoryMovement[]
@@ -442,20 +469,20 @@ model PriceBook {
 }
 
 model PriceBookVersion {
-  id             String                    @id @default(uuid()) @db.Uuid
-  priceBook      PriceBook                 @relation(fields: [priceBookId], references: [id], onDelete: Restrict)
-  priceBookId    String                    @db.Uuid
-  version        Int
-  lifecycle      PriceBookVersionLifecycle @default(DRAFT)
-  effectiveFrom  DateTime?
-  effectiveUntil DateTime?
-  activatedAt    DateTime?
-  retiredAt      DateTime?
-  createdAt      DateTime                  @default(now())
-  updatedAt      DateTime                  @updatedAt
-  prices         VariantPrice[]
+  id               String                    @id @default(uuid()) @db.Uuid
+  priceBook        PriceBook                 @relation(fields: [priceBookId], references: [id], onDelete: Restrict)
+  priceBookId      String                    @db.Uuid
+  version          Int
+  lifecycle        PriceBookVersionLifecycle @default(DRAFT)
+  effectiveFrom    DateTime?
+  effectiveUntil   DateTime?
+  activatedAt      DateTime?
+  retiredAt        DateTime?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  prices           VariantPrice[]
   commercePolicies CommercePolicyVersion[]
-  orders         Order[]
+  orders           Order[]
 
   @@unique([priceBookId, version])
   @@index([priceBookId, lifecycle])
@@ -476,16 +503,16 @@ model VariantPrice {
 }
 
 model Warehouse {
-  id          String              @id @default(uuid()) @db.Uuid
-  code        String              @unique @db.VarChar(64)
-  name        String              @db.VarChar(120)
-  countryCode String              @db.Char(2)
-  status      WarehouseStatus     @default(ACTIVE)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  balances    InventoryBalance[]
-  movements   InventoryMovement[]
-  reservationItems InventoryReservationItem[]
+  id                String                     @id @default(uuid()) @db.Uuid
+  code              String                     @unique @db.VarChar(64)
+  name              String                     @db.VarChar(120)
+  countryCode       String                     @db.Char(2)
+  status            WarehouseStatus            @default(ACTIVE)
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  balances          InventoryBalance[]
+  movements         InventoryMovement[]
+  reservationItems  InventoryReservationItem[]
   fulfillmentGroups FulfillmentGroup[]
 
   @@index([status, countryCode])
@@ -570,36 +597,37 @@ model CartItem {
 }
 
 model CommercePolicyVersion {
-  id              String   @id @default(uuid()) @db.Uuid
-  version         Int      @unique
-  lifecycle       CommercePolicyLifecycle @default(DRAFT)
-  effectiveFrom   DateTime?
-  effectiveUntil  DateTime?
-  countryCode     String   @db.Char(2)
-  currencyCode    String   @db.Char(3)
-  shippingBaseMinor Int
+  id                         String                  @id @default(uuid()) @db.Uuid
+  version                    Int                     @unique
+  lifecycle                  CommercePolicyLifecycle @default(DRAFT)
+  effectiveFrom              DateTime?
+  effectiveUntil             DateTime?
+  countryCode                String                  @db.Char(2)
+  currencyCode               String                  @db.Char(3)
+  shippingBaseMinor          Int
   freeShippingThresholdMinor Int
-  heavySurchargeMinor Int
-  heavyThresholdGrams Int
-  taxRateBasisPoints Int
+  heavySurchargeMinor        Int
+  heavyThresholdGrams        Int
+  taxRateBasisPoints         Int
   reservationDurationSeconds Int
-  calculationVersion String @db.VarChar(64)
-  priceBookVersion   PriceBookVersion @relation(fields: [priceBookVersionId], references: [id], onDelete: Restrict)
-  priceBookVersionId String @db.Uuid
-  createdAt       DateTime @default(now())
-  orders          Order[]
+  calculationVersion         String                  @db.VarChar(64)
+  priceBookVersion           PriceBookVersion        @relation(fields: [priceBookVersionId], references: [id], onDelete: Restrict)
+  priceBookVersionId         String                  @db.Uuid
+  createdAt                  DateTime                @default(now())
+  orders                     Order[]
 
   @@index([countryCode, currencyCode, lifecycle, effectiveFrom])
 }
 
 model InventoryReservation {
-  id        String            @id @default(uuid()) @db.Uuid
-  status    ReservationStatus @default(ACTIVE)
-  expiresAt DateTime
-  order     Order?
-  items     InventoryReservationItem[]
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  id            String                     @id @default(uuid()) @db.Uuid
+  status        ReservationStatus          @default(ACTIVE)
+  expiresAt     DateTime
+  order         Order?                     @relation("OrderOriginalReservation")
+  recoveryOrder Order?                     @relation("OrderRecoveryReservation")
+  items         InventoryReservationItem[]
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
 
   @@index([status, expiresAt])
   @@index([status, updatedAt])
@@ -620,54 +648,70 @@ model InventoryReservationItem {
 }
 
 model Order {
-  id                         String                @id @default(uuid()) @db.Uuid
-  reference                  String                @unique @db.VarChar(32)
-  status                     OrderStatus           @default(PENDING_PAYMENT)
-  cart                       Cart                  @relation(fields: [cartId], references: [id], onDelete: Restrict)
-  cartId                     String                @db.Uuid
-  policyVersion              CommercePolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
-  policyVersionId            String                @db.Uuid
-  priceBookVersion           PriceBookVersion      @relation(fields: [priceBookVersionId], references: [id], onDelete: Restrict)
-  priceBookVersionId         String                @db.Uuid
-  reservation                InventoryReservation  @relation(fields: [reservationId], references: [id], onDelete: Restrict)
-  reservationId              String                @unique @db.Uuid
-  currencyCode               String                @db.Char(3)
-  subtotalMinor              BigInt
-  shippingMinor              BigInt
-  taxMinor                   BigInt
-  totalMinor                 BigInt
-  calculationSnapshot        Json
-  shippingAddressSnapshot    Json
-  createdAt                  DateTime              @default(now())
-  updatedAt                  DateTime              @updatedAt
-  lines                      OrderLine[]
-  paymentAttempts            PaymentAttempt[]
-  fulfillmentGroups          FulfillmentGroup[]
+  id                      String                 @id @default(uuid()) @db.Uuid
+  reference               String                 @unique @db.VarChar(32)
+  status                  OrderStatus            @default(PENDING_PAYMENT)
+  cart                    Cart                   @relation(fields: [cartId], references: [id], onDelete: Restrict)
+  cartId                  String                 @db.Uuid
+  policyVersion           CommercePolicyVersion  @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  policyVersionId         String                 @db.Uuid
+  priceBookVersion        PriceBookVersion       @relation(fields: [priceBookVersionId], references: [id], onDelete: Restrict)
+  priceBookVersionId      String                 @db.Uuid
+  reservation             InventoryReservation   @relation("OrderOriginalReservation", fields: [reservationId], references: [id], onDelete: Restrict)
+  reservationId           String                 @unique @db.Uuid
+  recoveryReservation     InventoryReservation?  @relation("OrderRecoveryReservation", fields: [recoveryReservationId], references: [id], onDelete: Restrict)
+  recoveryReservationId   String?                @unique @db.Uuid
+  currencyCode            String                 @db.Char(3)
+  subtotalMinor           BigInt
+  shippingMinor           BigInt
+  taxMinor                BigInt
+  totalMinor              BigInt
+  calculationSnapshot     Json
+  shippingAddressSnapshot Json
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  lines                   OrderLine[]
+  paymentAttempts         PaymentAttempt[]
+  paymentCompensations    PaymentCompensation[]
+  fulfillmentGroups       FulfillmentGroup[]
+  guestAccessGrant        GuestOrderAccessGrant?
 
   @@index([cartId, createdAt])
   @@index([status, createdAt])
   @@index([priceBookVersionId])
 }
 
+model GuestOrderAccessGrant {
+  id          String    @id @default(uuid()) @db.Uuid
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId     String    @unique @db.Uuid
+  tokenDigest String    @unique @db.Char(64)
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
 model OrderLine {
-  id                  String         @id @default(uuid()) @db.Uuid
-  order               Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  orderId             String         @db.Uuid
-  variant             ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
-  variantId           String         @db.Uuid
-  productNameSnapshot String         @db.VarChar(160)
-  variantNameSnapshot String         @db.VarChar(160)
-  skuSnapshot         String         @db.VarChar(64)
+  id                   String                 @id @default(uuid()) @db.Uuid
+  order                Order                  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId              String                 @db.Uuid
+  variant              ProductVariant         @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  variantId            String                 @db.Uuid
+  productNameSnapshot  String                 @db.VarChar(160)
+  variantNameSnapshot  String                 @db.VarChar(160)
+  skuSnapshot          String                 @db.VarChar(64)
   optionValuesSnapshot Json
-  taxClassSnapshot    String         @db.VarChar(64)
-  weightGramsSnapshot Int
-  mediaSnapshot       Json
-  quantity            Int
-  unitPriceMinor      BigInt
-  lineSubtotalMinor   BigInt
-  lineTaxMinor        BigInt
-  lineTotalMinor      BigInt
-  fulfillmentItems    FulfillmentGroupItem[]
+  taxClassSnapshot     String                 @db.VarChar(64)
+  weightGramsSnapshot  Int
+  mediaSnapshot        Json
+  quantity             Int
+  unitPriceMinor       BigInt
+  lineSubtotalMinor    BigInt
+  lineTaxMinor         BigInt
+  lineTotalMinor       BigInt
+  fulfillmentItems     FulfillmentGroupItem[]
 
   @@unique([orderId, variantId])
   @@index([orderId])
@@ -688,54 +732,104 @@ model PaymentAttempt {
   currencyCode           String               @db.Char(3)
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
+  compensation           PaymentCompensation?
 
+  @@unique([provider, providerPaymentId])
   @@index([orderId, createdAt])
   @@index([status, updatedAt])
-  @@unique([provider, providerPaymentId])
+}
+
+model PaymentCompensation {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  order                  Order                     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId                String                    @db.Uuid
+  paymentAttempt         PaymentAttempt            @relation(fields: [paymentAttemptId], references: [id], onDelete: Restrict)
+  paymentAttemptId       String                    @unique @db.Uuid
+  reason                 PaymentCompensationReason
+  status                 PaymentCompensationStatus @default(REQUIRED)
+  provider               String                    @db.VarChar(32)
+  providerCompensationId String?                   @db.VarChar(128)
+  amountMinor            BigInt
+  currencyCode           String                    @db.Char(3)
+  processingStartedAt    DateTime?
+  completedAt            DateTime?
+  failureCode            String?                   @db.VarChar(64)
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+
+  @@unique([provider, providerCompensationId])
+  @@index([orderId, createdAt])
+  @@index([status, createdAt, id])
+}
+
+model PaymentWebhookInbox {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  provider           String                    @db.VarChar(32)
+  providerEventId    String                    @db.VarChar(128)
+  eventType          PaymentWebhookEventType
+  providerObjectId   String                    @db.VarChar(128)
+  apiVersion         String                    @db.VarChar(32)
+  livemode           Boolean
+  providerCreatedAt  DateTime
+  receivedAt         DateTime                  @default(now())
+  normalizedData     Json
+  payloadDigest      String                    @db.Char(64)
+  status             PaymentWebhookInboxStatus @default(PENDING)
+  processingAttempts Int                       @default(0)
+  claimTokenDigest   String?                   @db.Char(64)
+  claimedAt          DateTime?
+  leaseExpiresAt     DateTime?
+  processedAt        DateTime?
+  failureCode        String?                   @db.VarChar(64)
+  updatedAt          DateTime                  @updatedAt
+
+  @@unique([provider, providerEventId])
+  @@index([status, receivedAt, id])
+  @@index([provider, providerObjectId, providerCreatedAt])
 }
 
 model FulfillmentGroup {
-  id          String                 @id @default(uuid()) @db.Uuid
-  order       Order                  @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  orderId     String                 @db.Uuid
-  warehouse   Warehouse              @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  warehouseId String                 @db.Uuid
-  status      FulfillmentGroupStatus @default(ALLOCATED)
-  version           Int                    @default(1)
+  id                String                        @id @default(uuid()) @db.Uuid
+  order             Order                         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId           String                        @db.Uuid
+  warehouse         Warehouse                     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  warehouseId       String                        @db.Uuid
+  status            FulfillmentGroupStatus        @default(ALLOCATED)
+  version           Int                           @default(1)
   pickingStartedAt  DateTime?
   packedAt          DateTime?
   shippedAt         DateTime?
   deliveredAt       DateTime?
-  carrierCode       String?                @db.VarChar(32)
-  trackingReference String?                @db.VarChar(64)
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
-  items       FulfillmentGroupItem[]
+  carrierCode       String?                       @db.VarChar(32)
+  trackingReference String?                       @db.VarChar(64)
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
+  items             FulfillmentGroupItem[]
   transitionResults FulfillmentTransitionResult[]
 
-  @@index([orderId])
   @@unique([orderId, warehouseId])
+  @@index([orderId])
   @@index([status, createdAt])
 }
 
 model FulfillmentTransitionResult {
-  id                 String                 @id @default(uuid()) @db.Uuid
-  idempotencyRecord  IdempotencyRecord      @relation(fields: [idempotencyRecordId], references: [id], onDelete: Cascade)
-  idempotencyRecordId String                @unique @db.Uuid
-  fulfillmentGroup   FulfillmentGroup       @relation(fields: [fulfillmentGroupId], references: [id], onDelete: Restrict)
-  fulfillmentGroupId String                @db.Uuid
-  orderId            String                 @db.Uuid
-  warehouseId        String                 @db.Uuid
-  status             FulfillmentGroupStatus
-  version            Int
-  pickingStartedAt   DateTime?
-  packedAt           DateTime?
-  shippedAt          DateTime?
-  deliveredAt        DateTime?
-  carrierCode        String?                @db.VarChar(32)
-  trackingReference  String?                @db.VarChar(64)
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime
+  id                  String                 @id @default(uuid()) @db.Uuid
+  idempotencyRecord   IdempotencyRecord      @relation(fields: [idempotencyRecordId], references: [id], onDelete: Cascade)
+  idempotencyRecordId String                 @unique @db.Uuid
+  fulfillmentGroup    FulfillmentGroup       @relation(fields: [fulfillmentGroupId], references: [id], onDelete: Restrict)
+  fulfillmentGroupId  String                 @db.Uuid
+  orderId             String                 @db.Uuid
+  warehouseId         String                 @db.Uuid
+  status              FulfillmentGroupStatus
+  version             Int
+  pickingStartedAt    DateTime?
+  packedAt            DateTime?
+  shippedAt           DateTime?
+  deliveredAt         DateTime?
+  carrierCode         String?                @db.VarChar(32)
+  trackingReference   String?                @db.VarChar(64)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime
 
   @@index([fulfillmentGroupId, version])
 }

@@ -1,6 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsPostalCode, IsString, Length, Matches, ValidateNested } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsPostalCode,
+  IsString,
+  Length,
+  Matches,
+  ValidateNested,
+} from 'class-validator';
 
 export class UsShippingAddressDto {
   @ApiProperty({ example: 'Ayoub Example' }) @IsString() @Length(1, 120) fullName!: string;
@@ -21,9 +29,10 @@ export class CheckoutPreviewDto {
 
 export class CreateCheckoutDto extends CheckoutPreviewDto {
   @ApiProperty() @IsString() @Length(16, 128) pricingFingerprint!: string;
-  @ApiProperty({ enum: ['stub-success', 'stub-decline'] })
+  @ApiProperty({ enum: ['stub-success', 'stub-decline'], required: false })
+  @IsOptional()
   @IsIn(['stub-success', 'stub-decline'])
-  paymentMethodReference!: 'stub-success' | 'stub-decline';
+  paymentMethodReference?: 'stub-success' | 'stub-decline';
 }
 
 export class CheckoutLineDto {
@@ -35,6 +44,8 @@ export class CheckoutLineDto {
 }
 
 export class CheckoutPreviewResponseDto {
+  @ApiProperty({ enum: ['stub', 'stripe'] })
+  paymentProvider!: 'stub' | 'stripe';
   @ApiProperty() currency!: 'USD';
   @ApiProperty() policyVersion!: number;
   @ApiProperty({ type: [CheckoutLineDto] }) lines!: CheckoutLineDto[];
@@ -46,6 +57,11 @@ export class CheckoutPreviewResponseDto {
   @ApiProperty() taxNotice!: string;
 }
 
+export class StripePaymentConfigurationDto {
+  @ApiProperty() publishableKey!: string;
+  @ApiProperty() clientSecret!: string;
+}
+
 export class CheckoutResponseDto extends CheckoutPreviewResponseDto {
   @ApiProperty() orderId!: string;
   @ApiProperty() orderReference!: string;
@@ -53,12 +69,18 @@ export class CheckoutResponseDto extends CheckoutPreviewResponseDto {
   checkoutStatus!: 'confirmed' | 'payment_failed' | 'pending_payment';
   @ApiProperty({ enum: ['pending_payment', 'confirmed'] })
   orderStatus!: 'pending_payment' | 'confirmed';
-  @ApiProperty({ enum: ['processing', 'succeeded', 'failed'] })
-  paymentStatus!: 'processing' | 'succeeded' | 'failed';
+  @ApiProperty({ enum: ['requires_payment_method', 'processing', 'succeeded', 'failed'] })
+  paymentStatus!: 'requires_payment_method' | 'processing' | 'succeeded' | 'failed';
+  @ApiProperty({ required: false, type: () => StripePaymentConfigurationDto })
+  paymentConfiguration?: StripePaymentConfigurationDto;
   @ApiProperty({ enum: ['active', 'committed', 'released', 'expired'] })
   reservationStatus!: 'active' | 'committed' | 'released' | 'expired';
   @ApiProperty({ enum: ['allocated', 'picking', 'packed', 'shipped', 'delivered'], nullable: true })
   fulfillmentStatus!: 'allocated' | 'picking' | 'packed' | 'shipped' | 'delivered' | null;
   @ApiProperty()
   reservationExpiresAt!: string;
+  @ApiProperty({ description: 'Transient bearer credential for this order only.' })
+  guestOrderAccessToken!: string;
+  @ApiProperty()
+  guestOrderAccessExpiresAt!: string;
 }

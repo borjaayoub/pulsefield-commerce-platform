@@ -17,7 +17,9 @@ import {
 } from '../generated/prisma/enums';
 import { CheckoutService, isRetryableTransactionError } from './checkout.service';
 import { CheckoutConflictError } from './checkout.errors';
-import { StubPaymentProvider } from './stub-payment.provider';
+import { StubPaymentProvider } from '../payments/stub-payment.provider';
+import { OrderTimelineService } from '../orders/order-timeline.service';
+import { digestGuestOrderAccessToken } from '../orders/guest-order-access';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -43,7 +45,8 @@ describe('checkout, reservation, and payment database integration', () => {
   const idempotency = new IdempotencyService(prisma);
   const audit = new AuditService();
   const payments = new StubPaymentProvider();
-  const checkout = new CheckoutService(prisma, idempotency, audit, payments);
+  const orderTimeline = new OrderTimelineService(prisma, Buffer.alloc(32, 8).toString('base64'));
+  const checkout = new CheckoutService(prisma, idempotency, audit, payments, orderTimeline);
 
   beforeEach(async () => {
     await clearCommerceData(prisma);
@@ -81,6 +84,13 @@ describe('checkout, reservation, and payment database integration', () => {
       paymentStatus: 'succeeded',
       reservationStatus: 'committed',
       fulfillmentStatus: 'allocated',
+    });
+    expect(replay.guestOrderAccessToken).toBe(first.guestOrderAccessToken);
+    await expect(
+      prisma.guestOrderAccessGrant.findUniqueOrThrow({ where: { orderId: first.orderId } }),
+    ).resolves.toMatchObject({
+      tokenDigest: digestGuestOrderAccessToken(first.guestOrderAccessToken),
+      revokedAt: null,
     });
     expect(replay).toEqual(first);
     await expect(

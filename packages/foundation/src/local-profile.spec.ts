@@ -17,7 +17,6 @@ const baseEnvironment: NodeJS.ProcessEnv = {
   API_PORT: '4000',
   WORKER_PORT: '4001',
   PAYMENT_PROVIDER: 'stub',
-  STRIPE_ENABLED: 'false',
   BILLABLE_ADAPTERS_ENABLED: 'false',
 };
 
@@ -59,9 +58,44 @@ describe('validateLocalProfile', () => {
     ).toThrow('Live Stripe credentials');
   });
 
-  it('rejects phase-one Stripe activation', () => {
-    expect(() => validateLocalProfile({ ...baseEnvironment, STRIPE_ENABLED: 'true' })).toThrow(
-      'STRIPE_ENABLED',
-    );
+  it('accepts Stripe only with complete test-mode credentials and a webhook secret', () => {
+    expect(
+      validateLocalProfile({
+        ...baseEnvironment,
+        PAYMENT_PROVIDER: 'stripe',
+        STRIPE_SECRET_KEY: 'sk_test_local_placeholder',
+        STRIPE_PUBLISHABLE_KEY: 'pk_test_local_placeholder',
+        STRIPE_WEBHOOK_SECRET: 'whsec_local_placeholder',
+      }).PAYMENT_PROVIDER,
+    ).toBe('stripe');
+    expect(() =>
+      validateLocalProfile({
+        ...baseEnvironment,
+        PAYMENT_PROVIDER: 'stripe',
+        STRIPE_SECRET_KEY: 'sk_test_local_placeholder',
+      }),
+    ).toThrow('complete secret/publishable pair');
+    expect(() =>
+      validateLocalProfile({
+        ...baseEnvironment,
+        PAYMENT_PROVIDER: 'stripe',
+        STRIPE_SECRET_KEY: 'sk_test_',
+        STRIPE_PUBLISHABLE_KEY: 'pk_test_local_placeholder',
+      }),
+    ).toThrow('STRIPE_SECRET_KEY must be a test-mode key');
+    expect(() =>
+      validateLocalProfile({
+        ...baseEnvironment,
+        PAYMENT_PROVIDER: 'stripe',
+        STRIPE_SECRET_KEY: 'sk_test_local_placeholder',
+        STRIPE_PUBLISHABLE_KEY: 'pk_test_local_placeholder',
+      }),
+    ).toThrow('webhook signing secret');
+    expect(() =>
+      validateLocalProfile({
+        ...baseEnvironment,
+        STRIPE_WEBHOOK_SECRET: 'not-a-webhook-secret',
+      }),
+    ).toThrow('STRIPE_WEBHOOK_SECRET');
   });
 });

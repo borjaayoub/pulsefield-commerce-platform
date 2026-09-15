@@ -17,6 +17,8 @@ export const MFA_CHALLENGE_RATE_LIMIT = 5;
 export const CART_REQUEST_RATE_LIMIT = 120;
 export const CART_MUTATION_RATE_LIMIT = 60;
 export const CHECKOUT_RATE_LIMIT = 20;
+export const GUEST_ORDER_IP_RATE_LIMIT = 60;
+export const GUEST_ORDER_TOKEN_RATE_LIMIT = 120;
 
 @Module({})
 export class RateLimitModule {
@@ -89,6 +91,22 @@ export class RateLimitModule {
               blockDuration: IDENTITY_RATE_LIMIT_WINDOW_MS,
               skipIf: (context) =>
                 !context.switchToHttp().getRequest().path.startsWith('/api/v1/checkouts'),
+            },
+            {
+              name: 'guestOrderIp',
+              ttl: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              limit: GUEST_ORDER_IP_RATE_LIMIT,
+              blockDuration: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              skipIf: (context) =>
+                !context.switchToHttp().getRequest().path.startsWith('/api/v1/orders/'),
+            },
+            {
+              name: 'guestOrderToken',
+              ttl: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              limit: GUEST_ORDER_TOKEN_RATE_LIMIT,
+              blockDuration: IDENTITY_RATE_LIMIT_WINDOW_MS,
+              skipIf: (context) =>
+                !context.switchToHttp().getRequest().path.startsWith('/api/v1/orders/'),
             },
           ],
         }),

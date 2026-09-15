@@ -1,23 +1,29 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { API_ORIGIN } from '../catalog/catalog-types';
 import { cartUrl, formatUsd, type Cart } from '../cart/cart-types';
+import {
+  checkoutRequestBody,
+  guestOrderUrl,
+  type CheckoutPreview,
+  type CheckoutResult,
+  type ShippingAddress,
+  type StubPaymentChoice,
+} from './checkout-payment';
 
-type Preview = {
-  subtotalMinor: number;
-  shippingMinor: number;
-  taxMinor: number;
-  totalMinor: number;
-  pricingFingerprint: string;
-  taxNotice: string;
-};
-type Result = Preview & {
-  orderReference: string;
-  checkoutStatus: 'confirmed' | 'payment_failed' | 'pending_payment';
-};
-const blankAddress = {
+const StripePaymentStep = dynamic(() => import('./stripe-payment-step'), {
+  ssr: false,
+  loading: () => (
+    <p className="state" role="status">
+      Loading secure payment form…
+    </p>
+  ),
+});
+
+const blankAddress: ShippingAddress = {
   fullName: '',
   line1: '',
   line2: '',
@@ -38,12 +44,14 @@ export default function CheckoutPage() {
   const [cart, setCart] = useState<Cart | null>(null);
   const [etag, setEtag] = useState<string | null>(null);
   const [address, setAddress] = useState(blankAddress);
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [choice, setChoice] = useState<'stub-success' | 'stub-decline'>('stub-success');
+  const [preview, setPreview] = useState<CheckoutPreview | null>(null);
+  const [choice, setChoice] = useState<StubPaymentChoice>('stub-success');
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
   const [state, setState] = useState<'loading' | 'ready' | 'submitting' | 'error'>('loading');
   const [message, setMessage] = useState('');
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<CheckoutResult | null>(null);
+  const [paymentSubmitted, setPaymentSubmitted] = useState(false);
+  const [returnedFromPayment, setReturnedFromPayment] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +71,12 @@ export default function CheckoutPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('payment_return') !== '1') return;
+    window.history.replaceState(null, '', window.location.pathname);
+    setReturnedFromPayment(true);
+  }, []);
   const update = (key: keyof typeof blankAddress, value: string) => {
     setAddress((current) => ({ ...current, [key]: key === 'state' ? value.toUpperCase() : value }));
     setPreview(null);
@@ -87,7 +101,7 @@ export default function CheckoutPage() {
         body: JSON.stringify({ shippingAddress: address }),
       });
       if (!response.ok) throw new Error('PREVIEW');
-      const nextPreview = (await response.json()) as Preview;
+      const nextPreview = (await response.json()) as CheckoutPreview;
       if (preview?.pricingFingerprint !== nextPreview.pricingFingerprint)
         setIdempotencyKey(newIdempotencyKey());
       setPreview(nextPreview);
@@ -109,13 +123,11 @@ export default function CheckoutPage() {
           'If-Match': etag,
           'Idempotency-Key': idempotencyKey,
         },
-        body: JSON.stringify({
-          shippingAddress: address,
-          pricingFingerprint: preview.pricingFingerprint,
-          paymentMethodReference: choice,
-        }),
+        body: JSON.stringify(checkoutRequestBody(address, preview, choice)),
       });
-      const payload = (await response.json().catch(() => ({}))) as Result & { detail?: string };
+      const payload = (await response.json().catch(() => ({}))) as CheckoutResult & {
+        detail?: string;
+      };
       if (!response.ok) throw new Error(payload.detail ?? 'CHECKOUT');
       setResult(payload);
     } catch (error) {
@@ -132,6 +144,59 @@ export default function CheckoutPage() {
         </p>
       </main>
     );
+  if (
+    returnedFromPayment ||
+    paymentSubmitted ||
+    (result?.paymentProvider === 'stripe' && !result.paymentConfiguration)
+  )
+    return (
+      <main className="catalog-shell">
+        <section className="state" aria-live="polite">
+          <p className="eyebrow">
+            {result?.orderReference ? `Order ${result.orderReference}` : 'Payment return'}
+          </p>
+          <h1>Payment verification pending.</h1>
+          <p>
+            {returnedFromPayment
+              ? 'The browser returned from the secure payment flow. This return is not payment evidence.'
+              : 'The test payment was submitted for server verification.'}{' '}
+            The order will be confirmed only after the server verifies webhook or reconciliation
+            evidence.
+          </p>
+          <p className="detail-note">
+            Do not submit another order while verification is in progress.
+          </p>
+          {result ? (
+            <Link
+              href={guestOrderUrl(result.orderReference, result.guestOrderAccessToken)}
+              className="text-link"
+            >
+              View order status →
+            </Link>
+          ) : null}
+          <Link href="/catalog" className="text-link">
+            Return to catalog →
+          </Link>
+        </section>
+      </main>
+    );
+  if (result?.paymentProvider === 'stripe' && result.paymentConfiguration)
+    return (
+      <main className="catalog-shell">
+        <StripePaymentStep
+          publishableKey={result.paymentConfiguration.publishableKey}
+          clientSecret={result.paymentConfiguration.clientSecret}
+          orderReference={result.orderReference}
+          guestOrderAccessToken={result.guestOrderAccessToken}
+          onSubmitted={() => {
+            setResult((current) =>
+              current ? { ...current, paymentConfiguration: undefined } : current,
+            );
+            setPaymentSubmitted(true);
+          }}
+        />
+      </main>
+    );
   if (result)
     return (
       <main className="catalog-shell">
@@ -145,6 +210,12 @@ export default function CheckoutPage() {
               ? 'The local demo payment succeeded and inventory is allocated.'
               : 'No payment was taken. Your cart is open so you can choose again.'}
           </p>
+          <Link
+            href={guestOrderUrl(result.orderReference, result.guestOrderAccessToken)}
+            className="text-link"
+          >
+            View order timeline →
+          </Link>
           <Link href="/catalog" className="text-link">
             Continue shopping →
           </Link>
@@ -164,7 +235,11 @@ export default function CheckoutPage() {
       <header className="catalog-header">
         <p className="eyebrow">Guest checkout / United States · USD</p>
         <h1>Checkout.</h1>
-        <p className="detail-note">Demo-only payment choices. Simulated tax is not tax advice.</p>
+        <p className="detail-note">
+          {preview?.paymentProvider === 'stripe'
+            ? 'Stripe test-mode card payment. Simulated tax is not tax advice.'
+            : 'Demo-only payment choices. Simulated tax is not tax advice.'}
+        </p>
       </header>
       {message ? (
         <p className="cart-message state-error" role="alert">
@@ -202,33 +277,44 @@ export default function CheckoutPage() {
               <p>Simulated tax: {formatUsd(preview.taxMinor)}</p>
               <h2>{formatUsd(preview.totalMinor)}</h2>
               <p className="detail-note">{preview.taxNotice}</p>
-              <fieldset>
-                <legend>Demo payment result</legend>
-                <label>
-                  <input
-                    type="radio"
-                    checked={choice === 'stub-success'}
-                    onChange={() => {
-                      setChoice('stub-success');
-                      setIdempotencyKey(newIdempotencyKey());
-                    }}
-                  />{' '}
-                  Success
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    checked={choice === 'stub-decline'}
-                    onChange={() => {
-                      setChoice('stub-decline');
-                      setIdempotencyKey(newIdempotencyKey());
-                    }}
-                  />{' '}
-                  Decline
-                </label>
-              </fieldset>
+              {preview.paymentProvider === 'stub' ? (
+                <fieldset>
+                  <legend>Demo payment result</legend>
+                  <label>
+                    <input
+                      type="radio"
+                      checked={choice === 'stub-success'}
+                      onChange={() => {
+                        setChoice('stub-success');
+                        setIdempotencyKey(newIdempotencyKey());
+                      }}
+                    />{' '}
+                    Success
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      checked={choice === 'stub-decline'}
+                      onChange={() => {
+                        setChoice('stub-decline');
+                        setIdempotencyKey(newIdempotencyKey());
+                      }}
+                    />{' '}
+                    Decline
+                  </label>
+                </fieldset>
+              ) : (
+                <p className="payment-provider-note">
+                  Secure card fields open after the server reserves inventory and prepares the test
+                  PaymentIntent.
+                </p>
+              )}
               <button type="button" disabled={state === 'submitting'} onClick={() => void submit()}>
-                {state === 'submitting' ? 'Submitting…' : 'Place demo order'}
+                {state === 'submitting'
+                  ? 'Preparing…'
+                  : preview.paymentProvider === 'stripe'
+                    ? 'Continue to secure payment'
+                    : 'Place demo order'}
               </button>
             </>
           ) : (

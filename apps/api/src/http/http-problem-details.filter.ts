@@ -33,7 +33,11 @@ import {
   CartRevisionRequiredError,
   CartCheckoutPendingError,
 } from '../cart/cart.errors';
-import { CheckoutConflictError, CheckoutRequestError } from '../checkout/checkout.errors';
+import {
+  CheckoutConflictError,
+  CheckoutPaymentUnavailableError,
+  CheckoutRequestError,
+} from '../checkout/checkout.errors';
 import {
   FulfillmentConflictError,
   FulfillmentRequestError,
@@ -42,6 +46,10 @@ import {
   IdempotencyConflictError,
   InvalidIdempotencyInputError,
 } from '../idempotency/idempotency.errors';
+import {
+  StripeWebhookPersistenceUnavailableError,
+  StripeWebhookRequestError,
+} from '../payments/payment-webhook.errors';
 
 interface ProblemDefinition {
   status: number;
@@ -80,6 +88,39 @@ function safeHttpDetail(status: number): string {
 }
 
 function defineProblem(exception: unknown): ProblemDefinition {
+  if (
+    exception !== null &&
+    typeof exception === 'object' &&
+    Reflect.get(exception, 'status') === HttpStatus.PAYLOAD_TOO_LARGE &&
+    Reflect.get(exception, 'type') === 'entity.too.large'
+  ) {
+    return {
+      status: HttpStatus.PAYLOAD_TOO_LARGE,
+      code: 'REQUEST_BODY_TOO_LARGE',
+      detail: 'The request body is too large.',
+    };
+  }
+  if (exception instanceof StripeWebhookRequestError) {
+    return {
+      status: HttpStatus.BAD_REQUEST,
+      code: exception.code,
+      detail: exception.message,
+    };
+  }
+  if (exception instanceof StripeWebhookPersistenceUnavailableError) {
+    return {
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      code: exception.code,
+      detail: exception.message,
+    };
+  }
+  if (exception instanceof CheckoutPaymentUnavailableError) {
+    return {
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      code: exception.code,
+      detail: exception.message,
+    };
+  }
   if (exception instanceof CheckoutConflictError) {
     return {
       status:

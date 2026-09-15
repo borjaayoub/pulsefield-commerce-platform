@@ -32,8 +32,9 @@ export function buildContentSecurityPolicy(
     "img-src 'self' data: blob:",
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    `script-src 'self' 'nonce-${nonce}'${isDevelopment ? " 'unsafe-eval'" : ''}`,
-    `connect-src 'self' ${apiOrigin}`,
+    `script-src 'self' 'nonce-${nonce}' https://js.stripe.com https://*.js.stripe.com${isDevelopment ? " 'unsafe-eval'" : ''}`,
+    `connect-src 'self' ${apiOrigin} https://api.stripe.com`,
+    'frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com',
     "form-action 'self'",
   ].join('; ');
 }

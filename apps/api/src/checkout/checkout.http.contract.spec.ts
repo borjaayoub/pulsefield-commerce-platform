@@ -4,7 +4,7 @@ import request from 'supertest';
 import { createApiApp } from '../create-api-app';
 import { RedisThrottlerStorage } from '../rate-limit/redis-throttler.storage';
 import { RateLimitStorageUnavailableError } from '../rate-limit/rate-limit.errors';
-import { CheckoutConflictError } from './checkout.errors';
+import { CheckoutConflictError, CheckoutPaymentUnavailableError } from './checkout.errors';
 import type { CheckoutPreviewResponseDto, CheckoutResponseDto } from './checkout.dto';
 import { CheckoutService } from './checkout.service';
 
@@ -26,7 +26,6 @@ const profile = validateLocalProfile({
   API_PORT: '4000',
   WORKER_PORT: '4001',
   PAYMENT_PROVIDER: 'stub',
-  STRIPE_ENABLED: 'false',
   BILLABLE_ADAPTERS_ENABLED: 'false',
 });
 
@@ -41,6 +40,7 @@ const address = {
 };
 
 const previewResult = {
+  paymentProvider: 'stub' as const,
   currency: 'USD' as const,
   policyVersion: 1,
   lines: [],
@@ -57,10 +57,14 @@ const checkoutResult = {
   orderId: '90000000-0000-4000-8000-000000000001',
   orderReference: 'PF-TEST00000001',
   orderStatus: 'confirmed' as const,
+  paymentProvider: 'stub' as const,
   paymentStatus: 'succeeded' as const,
   reservationStatus: 'committed' as const,
   fulfillmentStatus: 'allocated' as const,
   reservationExpiresAt: '2026-09-11T00:10:00.000Z',
+  guestOrderAccessToken:
+    '00000000-0000-4000-8000-000000000000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  guestOrderAccessExpiresAt: '2026-10-11T00:10:00.000Z',
   checkoutStatus: 'confirmed' as const,
 } satisfies CheckoutResponseDto;
 
@@ -123,6 +127,7 @@ describe('checkout HTTP contract', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body.paymentProvider).toBe('stub');
     expect(preview).toHaveBeenLastCalledWith(token, 7, { shippingAddress: address });
   });
 
@@ -179,6 +184,46 @@ describe('checkout HTTP contract', () => {
     expect(response.headers['cache-control']).toBe('no-store');
   });
 
+  it('returns a generic uncached 503 when payment setup is unavailable', async () => {
+    create.mockRejectedValueOnce(new CheckoutPaymentUnavailableError());
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/checkouts')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-7"')
+      .set('Idempotency-Key', 'checkout-test-key-0002')
+      .send({
+        shippingAddress: address,
+        pricingFingerprint: previewResult.pricingFingerprint,
+        paymentMethodReference: 'stub-success',
+      });
+
+    expect(response.status).toBe(503);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body).toMatchObject({
+      code: 'PAYMENT_PROVIDER_UNAVAILABLE',
+      detail: 'Payment setup is temporarily unavailable. Try again later.',
+    });
+  });
+
+  it('rejects a browser-supplied payment provider selector', async () => {
+    create.mockClear();
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/checkouts')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-7"')
+      .set('Idempotency-Key', 'checkout-test-key-0003')
+      .send({
+        shippingAddress: address,
+        pricingFingerprint: previewResult.pricingFingerprint,
+        paymentMethodReference: 'stub-success',
+        paymentProvider: 'stripe',
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ code: 'REQUEST_VALIDATION_FAILED' });
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it('rejects cross-site checkout before entering the service', async () => {
     preview.mockClear();
     const response = await request(app.getHttpServer())
@@ -220,7 +265,9 @@ describe('checkout HTTP contract', () => {
     const response = await request(app.getHttpServer()).get('/api/docs/openapi.json');
     const properties = response.body.components.schemas.CheckoutResponseDto.properties;
     expect(properties.orderStatus).toBeDefined();
+    expect(properties.paymentProvider.enum).toEqual(['stub', 'stripe']);
     expect(properties.paymentStatus).toBeDefined();
+    expect(properties.paymentConfiguration).toBeDefined();
     expect(properties.reservationStatus).toBeDefined();
     expect(properties.fulfillmentStatus.nullable).toBe(true);
     expect(properties.reservationExpiresAt).toBeDefined();

@@ -18,9 +18,14 @@ import {
   ReservationStatus,
   RoleName,
 } from '../generated/prisma/enums';
-import { StubPaymentProvider } from '../checkout/stub-payment.provider';
+import { StubPaymentProvider } from '../payments/stub-payment.provider';
 import { FulfillmentService } from './fulfillment.service';
 import { ReservationExpiryService } from '../reservation-expiry/reservation-expiry.service';
+import { PaymentApplicationService } from '../payments/payment-application.service';
+import {
+  PaymentProviderRejectedError,
+  PaymentProviderUnavailableError,
+} from '../payments/stripe-payment.provider';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -122,6 +127,156 @@ describe('reservation expiry and staff fulfillment database integration', () => 
         where: { eventType: 'commerce.reservation.expired', aggregateId: order.reservationId },
       }),
     ).resolves.toBe(1);
+  });
+
+  it('expires a Stripe requires-payment-method attempt without replacing its provider identity', async () => {
+    await retirePolicyAndCreateShortPolicy(prisma);
+    const prepared = await prepareCart();
+    const stripeCheckout = new CheckoutService(
+      prisma,
+      idempotency,
+      audit,
+      new PaymentApplicationService(
+        'stripe',
+        {
+          async createPayment() {
+            return {
+              paymentId: 'pi_1234567890',
+              status: 'requires_payment_method' as const,
+              clientSecret: 'pi_1234567890_secret_example',
+            };
+          },
+        },
+        'pk_test_example',
+      ),
+    );
+    const pending = await stripeCheckout.create(
+      prepared.token,
+      prepared.revision,
+      `checkout-stripe-expiry-${randomUUID()}`,
+      {
+        shippingAddress: ADDRESS,
+        pricingFingerprint: prepared.pricingFingerprint,
+      },
+      `request-stripe-expiry-${randomUUID()}`,
+    );
+    expect(pending).toMatchObject({
+      paymentProvider: 'stripe',
+      paymentStatus: 'requires_payment_method',
+      paymentConfiguration: {
+        publishableKey: 'pk_test_example',
+        clientSecret: 'pi_1234567890_secret_example',
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+
+    await expect(new ReservationExpiryService(prisma, audit).sweepExpired()).resolves.toBe(1);
+    await expect(
+      prisma.paymentAttempt.findFirstOrThrow({ where: { orderId: pending.orderId } }),
+    ).resolves.toMatchObject({
+      status: PaymentAttemptStatus.FAILED,
+      providerPaymentId: 'pi_1234567890',
+      providerReference: 'pi_1234567890',
+      failureCode: 'RESERVATION_EXPIRED',
+    });
+  });
+
+  it('expires a Stripe attempt whose provider identity was never created', async () => {
+    await retirePolicyAndCreateShortPolicy(prisma);
+    const prepared = await prepareCart();
+    const stripeCheckout = new CheckoutService(
+      prisma,
+      idempotency,
+      audit,
+      new PaymentApplicationService(
+        'stripe',
+        {
+          async createPayment() {
+            throw new PaymentProviderUnavailableError();
+          },
+        },
+        'pk_test_example',
+      ),
+    );
+    await expect(
+      stripeCheckout.create(
+        prepared.token,
+        prepared.revision,
+        `checkout-stripe-unavailable-${randomUUID()}`,
+        {
+          shippingAddress: ADDRESS,
+          pricingFingerprint: prepared.pricingFingerprint,
+        },
+        `request-stripe-unavailable-${randomUUID()}`,
+      ),
+    ).rejects.toMatchObject({ code: 'PAYMENT_PROVIDER_UNAVAILABLE' });
+    const order = await prisma.order.findFirstOrThrow({
+      orderBy: { createdAt: 'desc' },
+      include: { paymentAttempts: true },
+    });
+    expect(order.paymentAttempts[0]).toMatchObject({
+      status: PaymentAttemptStatus.REQUIRES_PAYMENT_METHOD,
+      providerPaymentId: null,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+
+    await expect(new ReservationExpiryService(prisma, audit).sweepExpired()).resolves.toBe(1);
+    await expect(
+      prisma.paymentAttempt.findFirstOrThrow({ where: { orderId: order.id } }),
+    ).resolves.toMatchObject({
+      status: PaymentAttemptStatus.FAILED,
+      providerPaymentId: null,
+      providerReference: null,
+      failureCode: 'RESERVATION_EXPIRED',
+    });
+  });
+
+  it('releases inventory after a definite Stripe creation rejection without inventing an ID', async () => {
+    const prepared = await prepareCart();
+    const stripeCheckout = new CheckoutService(
+      prisma,
+      idempotency,
+      audit,
+      new PaymentApplicationService(
+        'stripe',
+        {
+          async createPayment() {
+            throw new PaymentProviderRejectedError();
+          },
+        },
+        'pk_test_example',
+      ),
+    );
+    await expect(
+      stripeCheckout.create(
+        prepared.token,
+        prepared.revision,
+        `checkout-stripe-rejected-${randomUUID()}`,
+        {
+          shippingAddress: ADDRESS,
+          pricingFingerprint: prepared.pricingFingerprint,
+        },
+        `request-stripe-rejected-${randomUUID()}`,
+      ),
+    ).rejects.toMatchObject({ code: 'PAYMENT_PROVIDER_UNAVAILABLE' });
+
+    const order = await prisma.order.findFirstOrThrow({
+      orderBy: { createdAt: 'desc' },
+      include: { reservation: true, paymentAttempts: true, cart: true },
+    });
+    expect(order).toMatchObject({
+      status: OrderStatus.PENDING_PAYMENT,
+      reservation: { status: ReservationStatus.RELEASED },
+      cart: { status: CartStatus.OPEN },
+      paymentAttempts: [
+        {
+          status: PaymentAttemptStatus.FAILED,
+          providerPaymentId: null,
+          providerReference: null,
+          failureCode: 'PAYMENT_PROVIDER_REJECTED',
+        },
+      ],
+    });
   });
 
   it('lets payment success and expiry have one valid winner', async () => {
