@@ -351,7 +351,7 @@ export class PaymentReconciliationExecutionService {
       data: {
         eventType:
           outcome === 'late_success_confirmed'
-            ? 'commerce.order.late-payment-confirmed'
+            ? 'commerce.order.confirmed'
             : 'commerce.payment.compensation-required',
         eventVersion: 1,
         aggregateType: 'order',

@@ -9,9 +9,11 @@ import {
   NOTIFICATION_DELIVERY_OUTCOME_QUEUE,
   SEND_EMAIL_VERIFICATION_JOB,
   SEND_PASSWORD_RECOVERY_JOB,
+  SEND_ORDER_CONFIRMATION_JOB,
   type EmailVerificationJobData,
   type IdentityNotificationJobData,
   type PasswordRecoveryJobData,
+  type OrderConfirmationJobData,
   type NotificationDeadLetterJobData,
   type NotificationDeliveryOutcomeJobData,
 } from '@pulse-field/contracts';
@@ -28,6 +30,7 @@ import {
 } from './notification/delivery-outcome';
 import { EmailVerificationProcessor } from './notification/email-verification.processor';
 import { PasswordRecoveryProcessor } from './notification/password-recovery.processor';
+import { OrderConfirmationProcessor } from './notification/order-confirmation.processor';
 import { MailpitNotificationAdapter } from './notification/mailpit-notification.adapter';
 import { workerQueueConnectionFromUrl } from './queue-connection';
 import { workerHealthResponse } from './worker-health';
@@ -46,6 +49,7 @@ async function bootstrap(): Promise<void> {
         '*.recipient',
         '*.verificationUrl',
         '*.passwordResetUrl',
+        '*.orderTimelineUrl',
         '*.encryptedDelivery',
         '*.password',
         '*.newPassword',
@@ -75,6 +79,12 @@ async function bootstrap(): Promise<void> {
     notifications,
     profile.MESSAGE_ENCRYPTION_PREVIOUS_KEY_BASE64,
   );
+  const orderConfirmationProcessor = new OrderConfirmationProcessor(
+    profile.MESSAGE_ENCRYPTION_KEY_BASE64,
+    profile.WEB_ORIGIN,
+    notifications,
+    profile.MESSAGE_ENCRYPTION_PREVIOUS_KEY_BASE64,
+  );
   const workerConnection = workerQueueConnectionFromUrl(profile.QUEUE_REDIS_URL, 'worker');
   const producerConnection = workerQueueConnectionFromUrl(profile.QUEUE_REDIS_URL, 'producer');
   const deadLetterQueue = new Queue<NotificationDeadLetterJobData>(
@@ -94,6 +104,9 @@ async function bootstrap(): Promise<void> {
       }
       if (job.name === SEND_PASSWORD_RECOVERY_JOB) {
         return passwordRecoveryProcessor.process(job as Job<PasswordRecoveryJobData>);
+      }
+      if (job.name === SEND_ORDER_CONFIRMATION_JOB) {
+        return orderConfirmationProcessor.process(job as Job<OrderConfirmationJobData>);
       }
       throw new UnrecoverableError('Notification job contract is unsupported.');
     },

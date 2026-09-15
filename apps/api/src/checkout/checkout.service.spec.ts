@@ -32,6 +32,7 @@ describe('Phase 3 US/USD checkout calculation', () => {
     );
     const stub = new CheckoutService(prisma as never, {} as never, {} as never, {} as never);
     const base = {
+      customerEmail: 'customer@example.test',
       shippingAddress: {
         fullName: 'Demo Person',
         line1: '1 Test Street',
@@ -69,6 +70,7 @@ describe('Phase 3 US/USD checkout calculation', () => {
         countryCode: 'US',
         providerToken: 'must-not-fingerprint',
       },
+      customerEmail: ' Customer@Example.Test ',
       pricingFingerprint: 'a'.repeat(16),
       paymentMethodReference: 'stub-success',
     });
@@ -98,6 +100,7 @@ describe('Phase 3 US/USD checkout calculation', () => {
       {} as never,
     );
     const dto = plainToInstance(CreateCheckoutDto, {
+      customerEmail: ' Customer@Example.Test ',
       shippingAddress: {
         fullName: 'Demo Person',
         line1: '1 Test Street',
@@ -114,6 +117,7 @@ describe('Phase 3 US/USD checkout calculation', () => {
       service.create('cart-token', 1, 'idempotency-key', dto, 'request-1'),
     ).rejects.toThrow('captured before persistence');
     const capturedAddress = begin.mock.calls[0][0].request.shippingAddress;
+    expect(begin.mock.calls[0][0].request.customerEmail).toBe('customer@example.test');
     expect(Object.getPrototypeOf(capturedAddress)).toBe(Object.prototype);
     expect(capturedAddress).toEqual({
       fullName: 'Demo Person',

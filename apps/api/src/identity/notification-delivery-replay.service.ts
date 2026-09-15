@@ -90,6 +90,8 @@ export class NotificationDeliveryReplayService {
       });
       if (
         !delivery ||
+        !delivery.userId ||
+        !delivery.user ||
         delivery.status !== NotificationDeliveryStatus.FAILED_TERMINAL ||
         delivery.replayedAt !== null
       ) {

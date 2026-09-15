@@ -3,12 +3,11 @@ import type { NotificationDeliveryOutcomeJobData } from '@pulse-field/contracts'
 import { PrismaService } from '../database/prisma.service';
 import { NotificationDeliveryStatus, NotificationDeliveryType } from '../generated/prisma/enums';
 
-export interface QueueNotificationDeliveryInput {
+export type QueueNotificationDeliveryInput = {
   sourceEventId: string;
-  userId: string;
   type: NotificationDeliveryType;
   correlationId: string;
-}
+} & ({ userId: string; orderId?: never } | { orderId: string; userId?: never });
 
 @Injectable()
 export class NotificationDeliveryService {

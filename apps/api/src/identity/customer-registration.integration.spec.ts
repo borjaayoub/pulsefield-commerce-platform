@@ -56,6 +56,9 @@ describe('CustomerRegistrationService database integration', () => {
         await prisma.outboxMessage.deleteMany({
           where: { aggregateId: { in: userIds } },
         });
+        await prisma.notificationDelivery.deleteMany({
+          where: { userId: { in: userIds } },
+        });
         await prisma.userRole.deleteMany({
           where: { userId: { in: userIds } },
         });

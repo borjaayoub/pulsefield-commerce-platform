@@ -163,6 +163,7 @@ describe('checkout HTTP contract', () => {
       .set('If-Match', '"cart-7"')
       .send({
         shippingAddress: address,
+        customerEmail: 'customer@example.test',
         pricingFingerprint: previewResult.pricingFingerprint,
         paymentMethodReference: 'stub-success',
       });
@@ -177,6 +178,7 @@ describe('checkout HTTP contract', () => {
       .set('Idempotency-Key', 'checkout-test-key-0001')
       .send({
         shippingAddress: address,
+        customerEmail: 'customer@example.test',
         pricingFingerprint: previewResult.pricingFingerprint,
         paymentMethodReference: 'stub-success',
       });
@@ -193,6 +195,7 @@ describe('checkout HTTP contract', () => {
       .set('Idempotency-Key', 'checkout-test-key-0002')
       .send({
         shippingAddress: address,
+        customerEmail: 'customer@example.test',
         pricingFingerprint: previewResult.pricingFingerprint,
         paymentMethodReference: 'stub-success',
       });
@@ -214,6 +217,7 @@ describe('checkout HTTP contract', () => {
       .set('Idempotency-Key', 'checkout-test-key-0003')
       .send({
         shippingAddress: address,
+        customerEmail: 'customer@example.test',
         pricingFingerprint: previewResult.pricingFingerprint,
         paymentMethodReference: 'stub-success',
         paymentProvider: 'stripe',

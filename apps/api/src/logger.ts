@@ -21,6 +21,7 @@ export function createLogger(
           'req.headers.stripe-signature',
           'req.body.password',
           'req.body.email',
+          'req.body.customerEmail',
           'req.body.newPassword',
           'req.body.csrfToken',
           'req.body.token',

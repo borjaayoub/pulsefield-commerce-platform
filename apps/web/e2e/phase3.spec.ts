@@ -132,6 +132,7 @@ test.describe('Phase 3 critical local journey', () => {
     await expect(page.getByRole('heading', { name: 'Cart.' })).toBeVisible();
     await page.getByRole('link', { name: 'Continue to checkout →' }).click();
     await expect(page.getByRole('heading', { name: 'Checkout.' })).toBeVisible();
+    await page.getByLabel('Email for order confirmation').fill('recruiter@example.test');
     await page.getByLabel('Full name').fill('Demo Walkthrough');
     await page.getByLabel('Address', { exact: true }).fill('1 Test Street');
     await page.getByLabel('City').fill('Austin');

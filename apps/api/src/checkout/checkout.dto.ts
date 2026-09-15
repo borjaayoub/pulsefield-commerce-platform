@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsEmail,
   IsIn,
   IsOptional,
   IsPostalCode,
@@ -28,6 +29,10 @@ export class CheckoutPreviewDto {
 }
 
 export class CreateCheckoutDto extends CheckoutPreviewDto {
+  @ApiProperty({ example: 'customer@example.test' })
+  @IsEmail({ allow_display_name: false, require_tld: true })
+  @Length(3, 255)
+  customerEmail!: string;
   @ApiProperty() @IsString() @Length(16, 128) pricingFingerprint!: string;
   @ApiProperty({ enum: ['stub-success', 'stub-decline'], required: false })
   @IsOptional()

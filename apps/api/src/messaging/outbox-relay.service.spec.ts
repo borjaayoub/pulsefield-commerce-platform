@@ -51,6 +51,7 @@ describe('OutboxRelayService', () => {
       emailNormalized: 'customer@example.test',
       status: AccountStatus.PENDING_VERIFICATION,
     });
+    const findOrder = jest.fn().mockResolvedValue(null);
     const issue = jest.fn().mockResolvedValue({
       token: 'raw-verification-token',
       expiresAt: new Date('2026-09-02T04:00:00.000Z'),
@@ -61,15 +62,21 @@ describe('OutboxRelayService', () => {
       expiresAt: new Date('2026-09-01T21:00:00.000Z'),
     });
     const publishPasswordRecovery = jest.fn().mockResolvedValue(undefined);
+    const publishOrderConfirmation = jest.fn().mockResolvedValue(undefined);
     const prisma = {
       outboxMessage: { findFirst: findOutbox, updateMany: updateOutbox },
       user: { findUnique: findUser },
+      order: { findUnique: findOrder },
     } as unknown as PrismaService;
     const tokens = { issue } as unknown as EmailVerificationTokenService;
     const passwordResetTokens = {
       issue: issuePasswordReset,
     } as unknown as PasswordResetTokenService;
-    const publisher = { publishEmailVerification, publishPasswordRecovery } as OutboxPublisher;
+    const publisher = {
+      publishEmailVerification,
+      publishPasswordRecovery,
+      publishOrderConfirmation,
+    } as OutboxPublisher;
     const recordQueued = jest.fn().mockResolvedValue(undefined);
     const deliveries = { recordQueued };
 
@@ -89,7 +96,9 @@ describe('OutboxRelayService', () => {
       publishEmailVerification,
       issuePasswordReset,
       publishPasswordRecovery,
+      publishOrderConfirmation,
       recordQueued,
+      findOrder,
     };
   }
 
@@ -203,6 +212,48 @@ describe('OutboxRelayService', () => {
     });
     expect(JSON.stringify(job)).not.toContain('customer@example.test');
     expect(JSON.stringify(job)).not.toContain('raw-password-reset-token');
+  });
+
+  it('encrypts confirmed-order recipient and guest access before publication', async () => {
+    const { service, findOutbox, findOrder, publishOrderConfirmation, recordQueued } =
+      createSubject();
+    const orderId = '47bb642d-b99b-4fe0-b136-63f5e2fefadb';
+    const grantId = 'cb995e40-e77e-48ce-b118-af88285f7e12';
+    findOutbox.mockResolvedValueOnce({
+      ...message,
+      eventType: 'commerce.order.confirmed',
+      eventVersion: 1,
+      aggregateId: orderId,
+      payload: { orderId, orderReference: 'PF-ABCDEF123456', outcome: 'confirmed' },
+    });
+    findOrder.mockResolvedValueOnce({
+      reference: 'PF-ABCDEF123456',
+      status: 'CONFIRMED',
+      customerEmailNormalized: 'buyer@example.test',
+      guestAccessGrant: {
+        id: grantId,
+        expiresAt: new Date('2026-10-01T20:00:00.000Z'),
+        revokedAt: null,
+      },
+    });
+
+    await service.drainOnce();
+
+    expect(recordQueued).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceEventId: eventId,
+        orderId,
+        type: NotificationDeliveryType.ORDER_CONFIRMATION,
+      }),
+    );
+    const job = publishOrderConfirmation.mock.calls[0]?.[0];
+    expect(decryptQueueMessage(job.encryptedDelivery, encryptionKey)).toMatchObject({
+      recipient: 'buyer@example.test',
+      orderReference: 'PF-ABCDEF123456',
+      orderTimelineUrl: expect.stringContaining('/orders/PF-ABCDEF123456#access='),
+    });
+    expect(JSON.stringify(job)).not.toContain('buyer@example.test');
+    expect(JSON.stringify(job)).not.toContain('#access=');
   });
 
   it('does nothing when no event is eligible', async () => {

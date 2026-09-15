@@ -42,15 +42,18 @@ export function stripeReturnUrl(origin: string, reference: string): string {
 
 export function checkoutRequestBody(
   address: ShippingAddress,
+  customerEmail: string,
   preview: CheckoutPreview,
   choice: StubPaymentChoice,
 ): {
   shippingAddress: ShippingAddress;
+  customerEmail: string;
   pricingFingerprint: string;
   paymentMethodReference?: StubPaymentChoice;
 } {
   return {
     shippingAddress: address,
+    customerEmail,
     pricingFingerprint: preview.pricingFingerprint,
     ...(preview.paymentProvider === 'stub' ? { paymentMethodReference: choice } : {}),
   };

@@ -3,9 +3,11 @@ import {
   IDENTITY_NOTIFICATION_QUEUE,
   SEND_EMAIL_VERIFICATION_JOB,
   SEND_PASSWORD_RECOVERY_JOB,
+  SEND_ORDER_CONFIRMATION_JOB,
   type EmailVerificationJobData,
   type IdentityNotificationJobData,
   type PasswordRecoveryJobData,
+  type OrderConfirmationJobData,
 } from '@pulse-field/contracts';
 import type { LocalProfile } from '@pulse-field/foundation';
 import { Queue } from 'bullmq';
@@ -15,6 +17,7 @@ import { queueConnectionFromUrl } from './queue-connection';
 export interface OutboxPublisher {
   publishEmailVerification(data: EmailVerificationJobData): Promise<void>;
   publishPasswordRecovery(data: PasswordRecoveryJobData): Promise<void>;
+  publishOrderConfirmation(data: OrderConfirmationJobData): Promise<void>;
 }
 
 @Injectable()
@@ -42,6 +45,11 @@ export class BullMqOutboxPublisher implements OutboxPublisher, OnModuleDestroy {
   async publishPasswordRecovery(data: PasswordRecoveryJobData): Promise<void> {
     if (!this.queue) throw new Error('Outbox relay is disabled.');
     await this.queue.add(SEND_PASSWORD_RECOVERY_JOB, data, { jobId: data.sourceEventId });
+  }
+
+  async publishOrderConfirmation(data: OrderConfirmationJobData): Promise<void> {
+    if (!this.queue) throw new Error('Outbox relay is disabled.');
+    await this.queue.add(SEND_ORDER_CONFIRMATION_JOB, data, { jobId: data.sourceEventId });
   }
 
   async onModuleDestroy(): Promise<void> {

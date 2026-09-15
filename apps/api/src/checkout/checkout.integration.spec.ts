@@ -10,6 +10,7 @@ import {
   CartStatus,
   CommercePolicyLifecycle,
   InventoryMovementType,
+  NotificationDeliveryType,
   OrderStatus,
   PaymentAttemptStatus,
   ReservationStatus,
@@ -108,6 +109,7 @@ describe('checkout, reservation, and payment database integration', () => {
       include: { lines: true, reservation: true, paymentAttempts: true },
     });
     expect(order.priceBookVersionId).toBe('61000000-0000-4000-8000-000000000001');
+    expect(order.customerEmailNormalized).toBe('checkout@example.test');
     expect(order.policyVersionId).toBe(POLICY_ID);
     expect(order.lines[0]).toMatchObject({
       variantId: VARIANT_ID,
@@ -122,6 +124,37 @@ describe('checkout, reservation, and payment database integration', () => {
       shippingBaseMinor: 800,
       reservationDurationSeconds: 600,
     });
+    await expect(
+      prisma.order.update({
+        where: { id: order.id },
+        data: { customerEmailNormalized: 'changed@example.test' },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      prisma.outboxMessage.count({
+        where: { aggregateId: order.id, eventType: 'commerce.order.confirmed' },
+      }),
+    ).resolves.toBe(1);
+    const deliveryEventId = randomUUID();
+    await expect(
+      prisma.notificationDelivery.create({
+        data: {
+          sourceEventId: deliveryEventId,
+          orderId: order.id,
+          type: NotificationDeliveryType.ORDER_CONFIRMATION,
+          correlationId: 'checkout-order-confirmation-ledger',
+        },
+      }),
+    ).resolves.toMatchObject({ orderId: order.id, userId: null });
+    await expect(
+      prisma.notificationDelivery.create({
+        data: {
+          sourceEventId: randomUUID(),
+          type: NotificationDeliveryType.ORDER_CONFIRMATION,
+          correlationId: 'missing-delivery-owner',
+        },
+      }),
+    ).rejects.toThrow();
     const fulfillmentItem = await prisma.fulfillmentGroupItem.findFirstOrThrow({
       where: { fulfillmentGroup: { orderId: first.orderId } },
     });
@@ -519,6 +552,7 @@ function checkoutRequest(
 ) {
   return {
     shippingAddress: ADDRESS,
+    customerEmail: 'checkout@example.test',
     pricingFingerprint: prepared.pricingFingerprint,
     paymentMethodReference,
   };

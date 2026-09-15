@@ -689,6 +689,11 @@ describe('payment lifecycle database integration', () => {
     const first = await reconciliation.reconcile(attempt.id, 'reconcile-late-success');
     expect(first).toMatchObject({ outcome: 'LATE_SUCCESS_CONFIRMED' });
     await expect(
+      prisma.outboxMessage.count({
+        where: { aggregateId: attempt.orderId, eventType: 'commerce.order.confirmed' },
+      }),
+    ).resolves.toBe(1);
+    await expect(
       reconciliation.reconcile(attempt.id, 'reconcile-late-success-retry'),
     ).resolves.toEqual({ outcome: 'NO_OP' });
 
@@ -950,6 +955,7 @@ describe('payment lifecycle database integration', () => {
       `phase4-checkout-${randomUUID()}`,
       {
         shippingAddress: ADDRESS,
+        customerEmail: 'payment@example.test',
         pricingFingerprint: preview.pricingFingerprint,
         paymentMethodReference: 'stub-success',
       },

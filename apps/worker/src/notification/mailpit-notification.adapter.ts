@@ -10,6 +10,10 @@ import {
   PASSWORD_RECOVERY_TEMPLATE,
   renderPasswordRecoveryEmail,
 } from './password-recovery.template';
+import {
+  ORDER_CONFIRMATION_TEMPLATE,
+  renderOrderConfirmationEmail,
+} from './order-confirmation.template';
 
 export function resolveMailpitSmtpHost(host: string): string {
   return host === 'localhost' ? '127.0.0.1' : host;
@@ -44,7 +48,9 @@ export class MailpitNotificationAdapter implements NotificationProvider {
     const rendered =
       message.template === PASSWORD_RECOVERY_TEMPLATE
         ? renderPasswordRecoveryEmail(message)
-        : renderVerificationEmail(message);
+        : message.template === ORDER_CONFIRMATION_TEMPLATE
+          ? renderOrderConfirmationEmail(message)
+          : renderVerificationEmail(message);
     const result = await this.transporter.sendMail({
       from: 'PULSE//FIELD <no-reply@pulsefield.local>',
       to: message.recipient,

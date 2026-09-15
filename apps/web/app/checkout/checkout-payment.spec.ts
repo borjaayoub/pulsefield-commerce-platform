@@ -30,16 +30,22 @@ function preview(paymentProvider: CheckoutPreview['paymentProvider']): CheckoutP
 
 describe('checkout payment browser boundary', () => {
   it('sends a stub outcome only when the server selected the stub provider', () => {
-    expect(checkoutRequestBody(address, preview('stub'), 'stub-decline')).toEqual({
+    expect(
+      checkoutRequestBody(address, 'customer@example.test', preview('stub'), 'stub-decline'),
+    ).toEqual({
       shippingAddress: address,
+      customerEmail: 'customer@example.test',
       pricingFingerprint: 'fingerprint',
       paymentMethodReference: 'stub-decline',
     });
   });
 
   it('cannot send a browser-selected provider or stub reference to Stripe checkout', () => {
-    expect(checkoutRequestBody(address, preview('stripe'), 'stub-success')).toEqual({
+    expect(
+      checkoutRequestBody(address, 'customer@example.test', preview('stripe'), 'stub-success'),
+    ).toEqual({
       shippingAddress: address,
+      customerEmail: 'customer@example.test',
       pricingFingerprint: 'fingerprint',
     });
   });

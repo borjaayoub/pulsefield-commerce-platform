@@ -10,6 +10,8 @@ import type {
   EmailVerificationJobData,
   PasswordRecoveryDeliveryPayload,
   PasswordRecoveryJobData,
+  OrderConfirmationDeliveryPayload,
+  OrderConfirmationJobData,
 } from '@pulse-field/contracts';
 import { encryptQueueMessage, type LocalProfile } from '@pulse-field/foundation';
 import { hostname } from 'node:os';
@@ -20,6 +22,7 @@ import {
   AccountStatus,
   NotificationDeliveryType,
   OutboxMessageStatus,
+  OrderStatus,
 } from '../generated/prisma/enums';
 import {
   CUSTOMER_REGISTERED_EVENT_TYPE,
@@ -38,6 +41,10 @@ import { PasswordResetTokenService } from '../identity/password-reset-token.serv
 import { MESSAGING_PROFILE, OUTBOX_CLAIM_LEASE_MS, OUTBOX_PUBLISHER } from './messaging.constants';
 import type { OutboxPublisher } from './bullmq-outbox.publisher';
 import { NotificationDeliveryService } from './notification-delivery.service';
+import { createGuestOrderAccessToken } from '../orders/guest-order-access';
+
+export const ORDER_CONFIRMED_EVENT_TYPE = 'commerce.order.confirmed';
+export const ORDER_CONFIRMED_EVENT_VERSION = 1;
 
 const POLL_INTERVAL_MS = 1_000;
 const MAX_PUBLICATION_ATTEMPTS = 8;
@@ -46,6 +53,7 @@ const SUPPORTED_NOTIFICATION_EVENT_TYPES = [
   CUSTOMER_REGISTERED_EVENT_TYPE,
   EMAIL_VERIFICATION_REQUEST_EVENT_TYPE,
   PASSWORD_RECOVERY_REQUEST_EVENT_TYPE,
+  ORDER_CONFIRMED_EVENT_TYPE,
 ];
 
 type ClaimedOutboxMessage = {
@@ -68,6 +76,12 @@ function registeredUserId(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   const userId = Reflect.get(payload, 'userId');
   return typeof userId === 'string' && userId.length > 0 ? userId : null;
+}
+
+function confirmedOrderId(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const orderId = Reflect.get(payload, 'orderId');
+  return typeof orderId === 'string' && orderId.length > 0 ? orderId : null;
 }
 
 @Injectable()
@@ -157,9 +171,17 @@ export class OutboxRelayService implements OnApplicationBootstrap, OnModuleDestr
     const supportedRecoveryEvent =
       message.eventType === PASSWORD_RECOVERY_REQUEST_EVENT_TYPE &&
       message.eventVersion === PASSWORD_RECOVERY_REQUEST_EVENT_VERSION;
+    const supportedOrderConfirmation =
+      message.eventType === ORDER_CONFIRMED_EVENT_TYPE &&
+      message.eventVersion === ORDER_CONFIRMED_EVENT_VERSION;
 
-    if (!supportedVerificationEvent && !supportedRecoveryEvent) {
+    if (!supportedVerificationEvent && !supportedRecoveryEvent && !supportedOrderConfirmation) {
       await this.deadLetter(message.id, 'UNSUPPORTED_OUTBOX_EVENT');
+      return;
+    }
+
+    if (supportedOrderConfirmation) {
+      await this.dispatchOrderConfirmation(message);
       return;
     }
 
@@ -242,6 +264,71 @@ export class OutboxRelayService implements OnApplicationBootstrap, OnModuleDestr
       };
 
       await this.publisher.publishEmailVerification(job);
+      await this.markPublished(message.id);
+    } catch {
+      await this.releaseAfterFailure(message);
+    }
+  }
+
+  private async dispatchOrderConfirmation(message: ClaimedOutboxMessage): Promise<void> {
+    const orderId = confirmedOrderId(message.payload);
+    if (!orderId || orderId !== message.aggregateId) {
+      await this.deadLetter(message.id, 'INVALID_OUTBOX_PAYLOAD');
+      return;
+    }
+    try {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          reference: true,
+          status: true,
+          customerEmailNormalized: true,
+          guestAccessGrant: { select: { id: true, expiresAt: true, revokedAt: true } },
+        },
+      });
+      if (!order || order.status !== OrderStatus.CONFIRMED) {
+        await this.deadLetter(message.id, 'CONFIRMED_ORDER_NOT_FOUND');
+        return;
+      }
+      if (!order.customerEmailNormalized) {
+        await this.markPublished(message.id);
+        return;
+      }
+      const grant = order.guestAccessGrant;
+      if (!grant) throw new Error('Guest access grant is not ready.');
+      if (grant.revokedAt || grant.expiresAt <= new Date()) {
+        await this.markPublished(message.id);
+        return;
+      }
+      const access = createGuestOrderAccessToken(
+        orderId,
+        this.profile.MESSAGE_ENCRYPTION_KEY_BASE64,
+        grant.id,
+      );
+      await this.deliveries.recordQueued({
+        sourceEventId: message.id,
+        orderId,
+        type: NotificationDeliveryType.ORDER_CONFIRMATION,
+        correlationId: message.correlationId,
+      });
+      const delivery: OrderConfirmationDeliveryPayload = {
+        version: 1,
+        recipient: order.customerEmailNormalized,
+        orderReference: order.reference,
+        orderTimelineUrl: `${this.profile.WEB_ORIGIN}/orders/${encodeURIComponent(order.reference)}#access=${encodeURIComponent(access.token)}`,
+        accessExpiresAt: grant.expiresAt.toISOString(),
+      };
+      const job: OrderConfirmationJobData = {
+        version: 1,
+        sourceEventId: message.id,
+        correlationId: message.correlationId,
+        orderId,
+        encryptedDelivery: encryptQueueMessage(
+          delivery,
+          this.profile.MESSAGE_ENCRYPTION_KEY_BASE64,
+        ),
+      };
+      await this.publisher.publishOrderConfirmation(job);
       await this.markPublished(message.id);
     } catch {
       await this.releaseAfterFailure(message);

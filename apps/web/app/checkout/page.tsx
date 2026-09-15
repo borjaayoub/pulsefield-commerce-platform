@@ -44,6 +44,7 @@ export default function CheckoutPage() {
   const [cart, setCart] = useState<Cart | null>(null);
   const [etag, setEtag] = useState<string | null>(null);
   const [address, setAddress] = useState(blankAddress);
+  const [customerEmail, setCustomerEmail] = useState('');
   const [preview, setPreview] = useState<CheckoutPreview | null>(null);
   const [choice, setChoice] = useState<StubPaymentChoice>('stub-success');
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
@@ -123,7 +124,7 @@ export default function CheckoutPage() {
           'If-Match': etag,
           'Idempotency-Key': idempotencyKey,
         },
-        body: JSON.stringify(checkoutRequestBody(address, preview, choice)),
+        body: JSON.stringify(checkoutRequestBody(address, customerEmail, preview, choice)),
       });
       const payload = (await response.json().catch(() => ({}))) as CheckoutResult & {
         detail?: string;
@@ -249,6 +250,20 @@ export default function CheckoutPage() {
       <div className="cart-layout">
         <form className="cart-summary" onSubmit={(event) => void requestPreview(event)}>
           <h2>US shipping address</h2>
+          <label className="quantity-control">
+            Email for order confirmation
+            <input
+              required
+              type="email"
+              autoComplete="email"
+              maxLength={255}
+              value={customerEmail}
+              onChange={(event) => {
+                setCustomerEmail(event.target.value);
+                setIdempotencyKey(newIdempotencyKey());
+              }}
+            />
+          </label>
           {(['fullName', 'line1', 'line2', 'city', 'state', 'postalCode'] as const).map((field) => (
             <label className="quantity-control" key={field}>
               {field === 'line1'

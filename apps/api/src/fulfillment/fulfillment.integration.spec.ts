@@ -156,6 +156,7 @@ describe('reservation expiry and staff fulfillment database integration', () => 
       `checkout-stripe-expiry-${randomUUID()}`,
       {
         shippingAddress: ADDRESS,
+        customerEmail: 'fulfillment@example.test',
         pricingFingerprint: prepared.pricingFingerprint,
       },
       `request-stripe-expiry-${randomUUID()}`,
@@ -205,6 +206,7 @@ describe('reservation expiry and staff fulfillment database integration', () => 
         `checkout-stripe-unavailable-${randomUUID()}`,
         {
           shippingAddress: ADDRESS,
+          customerEmail: 'fulfillment@example.test',
           pricingFingerprint: prepared.pricingFingerprint,
         },
         `request-stripe-unavailable-${randomUUID()}`,
@@ -254,6 +256,7 @@ describe('reservation expiry and staff fulfillment database integration', () => 
         `checkout-stripe-rejected-${randomUUID()}`,
         {
           shippingAddress: ADDRESS,
+          customerEmail: 'fulfillment@example.test',
           pricingFingerprint: prepared.pricingFingerprint,
         },
         `request-stripe-rejected-${randomUUID()}`,
@@ -666,6 +669,7 @@ interface PreparedCart {
 function checkoutRequest(prepared: PreparedCart) {
   return {
     shippingAddress: ADDRESS,
+    customerEmail: 'fulfillment@example.test',
     pricingFingerprint: prepared.pricingFingerprint,
     paymentMethodReference: 'stub-success' as const,
   };

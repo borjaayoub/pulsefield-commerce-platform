@@ -38,6 +38,7 @@ import type {
   CheckoutResponseDto,
 } from './checkout.dto';
 import { OrderTimelineService } from '../orders/order-timeline.service';
+import { normalizeEmail } from '../identity/normalize-email';
 
 type CheckoutPayments = Pick<PaymentProvider, 'createPayment'> &
   Partial<Pick<PaymentApplicationService, 'initialAttemptStatus' | 'provider' | 'publishableKey'>>;
@@ -301,6 +302,7 @@ export class CheckoutService {
           pricingFingerprint: body.pricingFingerprint,
           paymentProvider: this.configuredPaymentProvider,
           paymentMethodReference: body.paymentMethodReference ?? null,
+          customerEmail: normalizeEmail(body.customerEmail),
           shippingAddress: toIdempotencyShippingAddress(body.shippingAddress),
         },
       },
@@ -825,6 +827,7 @@ export class CheckoutService {
               taxNotice: TAX_NOTICE,
             },
             shippingAddressSnapshot: body.shippingAddress as unknown as Prisma.InputJsonValue,
+            customerEmailNormalized: normalizeEmail(body.customerEmail),
             lines: {
               create: cart.items.map((item) => {
                 const calculated = authoritativeTotals.lines.find(

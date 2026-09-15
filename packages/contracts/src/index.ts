@@ -162,6 +162,7 @@ export const IDENTITY_NOTIFICATION_DEAD_LETTER_QUEUE = 'identity-notifications-d
 export const NOTIFICATION_DELIVERY_OUTCOME_QUEUE = 'notification-delivery-outcomes';
 export const SEND_EMAIL_VERIFICATION_JOB = 'send-email-verification.v1';
 export const SEND_PASSWORD_RECOVERY_JOB = 'send-password-recovery.v1';
+export const SEND_ORDER_CONFIRMATION_JOB = 'send-order-confirmation.v1';
 export const NOTIFICATION_DEAD_LETTER_JOB = 'notification-dead-letter.v1';
 export const NOTIFICATION_DELIVERY_OUTCOME_JOB = 'notification-delivery-outcome.v1';
 export const PAYMENT_WEBHOOK_INBOX_QUEUE = 'payment-webhook-inbox';
@@ -210,7 +211,24 @@ export interface PasswordRecoveryJobData {
   encryptedDelivery: EncryptedMessageEnvelope;
 }
 
-export type IdentityNotificationJobData = EmailVerificationJobData | PasswordRecoveryJobData;
+export interface OrderConfirmationDeliveryPayload {
+  version: 1;
+  recipient: string;
+  orderReference: string;
+  orderTimelineUrl: string;
+  accessExpiresAt: string;
+}
+
+export interface OrderConfirmationJobData {
+  version: 1;
+  sourceEventId: string;
+  correlationId: string;
+  orderId: string;
+  encryptedDelivery: EncryptedMessageEnvelope;
+}
+
+export type IdentityNotificationJobData =
+  EmailVerificationJobData | PasswordRecoveryJobData | OrderConfirmationJobData;
 
 export interface NotificationDeadLetterJobData {
   version: 1;

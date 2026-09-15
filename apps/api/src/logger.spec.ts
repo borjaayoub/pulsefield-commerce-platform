@@ -43,6 +43,7 @@ describe('API logger redaction', () => {
         },
         body: {
           email: 'private@example.test',
+          customerEmail: 'buyer@example.test',
           password: 'plain-password',
           newPassword: 'new-plain-password',
           challengeToken: 'raw-challenge-token',
@@ -63,6 +64,7 @@ describe('API logger redaction', () => {
     expect(output).not.toContain('raw-csrf-token');
     expect(output).not.toContain('plain-password');
     expect(output).not.toContain('private@example.test');
+    expect(output).not.toContain('buyer@example.test');
     expect(output).not.toContain('new-plain-password');
     expect(output).not.toContain('raw-challenge-token');
     expect(output).not.toContain('123456');

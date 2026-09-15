@@ -148,6 +148,7 @@ enum OutboxMessageStatus {
 enum NotificationDeliveryType {
   EMAIL_VERIFICATION
   PASSWORD_RECOVERY
+  ORDER_CONFIRMATION
 }
 
 enum NotificationDeliveryStatus {
@@ -342,8 +343,10 @@ model OutboxMessage {
 model NotificationDelivery {
   id                 String                     @id @default(uuid()) @db.Uuid
   sourceEventId      String                     @unique @db.Uuid
-  user               User                       @relation(fields: [userId], references: [id], onDelete: Restrict)
-  userId             String                     @db.Uuid
+  user               User?                      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  userId             String?                    @db.Uuid
+  order              Order?                     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId            String?                    @db.Uuid
   type               NotificationDeliveryType
   status             NotificationDeliveryStatus @default(QUEUED)
   correlationId      String                     @db.VarChar(128)
@@ -358,6 +361,7 @@ model NotificationDelivery {
 
   @@index([status, queuedAt])
   @@index([userId, queuedAt])
+  @@index([orderId, queuedAt])
 }
 
 model Product {
@@ -668,6 +672,7 @@ model Order {
   totalMinor              BigInt
   calculationSnapshot     Json
   shippingAddressSnapshot Json
+  customerEmailNormalized String?                @db.VarChar(255)
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
   lines                   OrderLine[]
@@ -675,6 +680,7 @@ model Order {
   paymentCompensations    PaymentCompensation[]
   fulfillmentGroups       FulfillmentGroup[]
   guestAccessGrant        GuestOrderAccessGrant?
+  notificationDeliveries  NotificationDelivery[]
 
   @@index([cartId, createdAt])
   @@index([status, createdAt])
