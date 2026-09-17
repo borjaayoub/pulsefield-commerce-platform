@@ -13,9 +13,36 @@ const sections = [
   { key: 'reservations', label: 'Reservations' },
   { key: 'orders', label: 'Orders' },
   { key: 'payments', label: 'Payments' },
+  { key: 'reconciliation', label: 'Reconciliation' },
   { key: 'fulfillment', label: 'Fulfillment' },
   { key: 'audit', label: 'Audit evidence' },
 ];
+
+const reconciliationColumns = [
+  ['orderReference', 'Order'],
+  ['orderStatus', 'Order status'],
+  ['paymentStatus', 'Payment status'],
+  ['provider', 'Provider'],
+  ['providerPaymentReference', 'Payment reference'],
+  ['failureCode', 'Payment failure'],
+  ['amountMinor', 'Amount (minor)'],
+  ['currency', 'Currency'],
+  ['attentionCategory', 'Attention'],
+  ['compensation', 'Compensation'],
+  ['createdAt', 'Created'],
+  ['updatedAt', 'Updated'],
+] as const;
+
+function reconciliationValue(row: Row, key: string): string {
+  if (key !== 'compensation') return value(row, key).replaceAll('_', ' ');
+  const compensation = row.compensation;
+  if (!compensation || typeof compensation !== 'object') return 'None';
+  const detail = compensation as Record<string, unknown>;
+  return [detail.status, detail.reason, detail.failureCode, detail.providerReference]
+    .filter((item): item is string => typeof item === 'string' && item.length > 0)
+    .join(' · ')
+    .replaceAll('_', ' ');
+}
 
 function value(row: Row, key: string): string {
   const v = row[key];
@@ -117,7 +144,12 @@ export default function OperationsPage() {
   const admin = session?.user.roles.includes('ADMINISTRATOR') ?? false;
   const visibleSections = admin ? sections : sections.filter((item) => item.key === 'fulfillment');
   const effectiveSection = admin ? section : 'fulfillment';
-  const columns = page?.items[0] ? Object.keys(page.items[0]) : [];
+  const columns =
+    effectiveSection === 'reconciliation'
+      ? reconciliationColumns.map(([key]) => key)
+      : page?.items[0]
+        ? Object.keys(page.items[0])
+        : [];
   const fulfiller = session?.user.roles.includes('FULFILLER') ?? false;
   const nextStatus: Record<string, string> = {
     ALLOCATED: 'PICKING',
@@ -185,7 +217,7 @@ export default function OperationsPage() {
         </span>
       </nav>
       <header className="operations-header">
-        <p className="eyebrow">Protected operations / Phase 3</p>
+        <p className="eyebrow">Protected operations</p>
         <h1>Control room.</h1>
         <p className="lede">
           Read-only operational projections keep customer, payment, and audit data deliberately
@@ -209,6 +241,12 @@ export default function OperationsPage() {
           <h2 id="operations-view-heading">
             {sections.find((item) => item.key === effectiveSection)?.label}
           </h2>
+          {effectiveSection === 'reconciliation' ? (
+            <p className="lede operations-read-only-note">
+              Read-only payment and recovery evidence. Provider references are masked; no payment
+              action can be performed here.
+            </p>
+          ) : null}
           {loading ? (
             <p role="status" className="state">
               Loading…
@@ -232,7 +270,9 @@ export default function OperationsPage() {
                   <tr>
                     {columns.map((column) => (
                       <th key={column} scope="col">
-                        {column}
+                        {effectiveSection === 'reconciliation'
+                          ? reconciliationColumns.find(([key]) => key === column)?.[1]
+                          : column}
                       </th>
                     ))}
                     {fulfiller && effectiveSection === 'fulfillment' ? (
@@ -244,7 +284,11 @@ export default function OperationsPage() {
                   {page.items.map((row, index) => (
                     <tr key={value(row, 'id') || index}>
                       {columns.map((column) => (
-                        <td key={column}>{value(row, column)}</td>
+                        <td key={column}>
+                          {effectiveSection === 'reconciliation'
+                            ? reconciliationValue(row, column)
+                            : value(row, column)}
+                        </td>
                       ))}
                       {fulfiller && effectiveSection === 'fulfillment' ? (
                         <td>

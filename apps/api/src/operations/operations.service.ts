@@ -5,13 +5,20 @@ import {
   AccountStatus,
   CatalogLifecycle,
   PriceBookVersionLifecycle,
+  OrderStatus,
+  PaymentAttemptStatus,
+  PaymentCompensationStatus,
   RoleName,
   WarehouseStatus,
 } from '../generated/prisma/enums';
 import { PrismaService } from '../database/prisma.service';
 import type { AuthenticatedSessionRequest } from '../identity/session-authentication.guard';
 import { maskAuditIdentifier, redactAuditText } from '../audit/audit-mask';
-import { OperationsQueryDto } from './operations.dto';
+import {
+  OperationsQueryDto,
+  ReconciliationAttentionCategory,
+  ReconciliationQueryDto,
+} from './operations.dto';
 import { OPERATIONS_CURSOR_KEY } from './operations.constants';
 
 const CURSOR_VERSION = 1;
@@ -85,6 +92,85 @@ function cursorWhere(cursor: Cursor | undefined): Prisma.ProductWhereInput['AND'
         },
       ]
     : undefined;
+}
+
+function reconciliationAttentionWhere(
+  attention: ReconciliationAttentionCategory | undefined,
+): Prisma.PaymentAttemptWhereInput {
+  switch (attention) {
+    case ReconciliationAttentionCategory.COMPENSATION_REQUIRED:
+      return { compensation: { status: PaymentCompensationStatus.REQUIRED } };
+    case ReconciliationAttentionCategory.COMPENSATION_PROCESSING:
+      return { compensation: { status: PaymentCompensationStatus.PROCESSING } };
+    case ReconciliationAttentionCategory.COMPENSATION_FAILED:
+      return { compensation: { status: PaymentCompensationStatus.FAILED } };
+    case ReconciliationAttentionCategory.COMPENSATED:
+      return { compensation: { status: PaymentCompensationStatus.SUCCEEDED } };
+    case ReconciliationAttentionCategory.MANUAL_RESOLUTION:
+      return { compensation: null, order: { status: OrderStatus.MANUAL_RESOLUTION } };
+    case ReconciliationAttentionCategory.PAYMENT_FAILED:
+      return {
+        compensation: null,
+        status: PaymentAttemptStatus.FAILED,
+        order: { status: OrderStatus.PENDING_PAYMENT },
+      };
+    case ReconciliationAttentionCategory.PAYMENT_PROCESSING:
+      return {
+        compensation: null,
+        status: PaymentAttemptStatus.PROCESSING,
+        order: { status: OrderStatus.PENDING_PAYMENT },
+      };
+    case ReconciliationAttentionCategory.NONE:
+      return {
+        compensation: null,
+        order: { status: { not: OrderStatus.MANUAL_RESOLUTION } },
+        OR: [
+          { order: { status: { not: OrderStatus.PENDING_PAYMENT } } },
+          {
+            status: {
+              in: [PaymentAttemptStatus.REQUIRES_PAYMENT_METHOD, PaymentAttemptStatus.SUCCEEDED],
+            },
+          },
+        ],
+      };
+    default:
+      return {};
+  }
+}
+
+function reconciliationAttention(record: {
+  status: PaymentAttemptStatus;
+  order: { status: OrderStatus };
+  compensation: { status: PaymentCompensationStatus } | null;
+}): ReconciliationAttentionCategory {
+  if (record.compensation) {
+    const byStatus: Record<PaymentCompensationStatus, ReconciliationAttentionCategory> = {
+      REQUIRED: ReconciliationAttentionCategory.COMPENSATION_REQUIRED,
+      PROCESSING: ReconciliationAttentionCategory.COMPENSATION_PROCESSING,
+      FAILED: ReconciliationAttentionCategory.COMPENSATION_FAILED,
+      SUCCEEDED: ReconciliationAttentionCategory.COMPENSATED,
+    };
+    return byStatus[record.compensation.status];
+  }
+  if (record.order.status === OrderStatus.MANUAL_RESOLUTION)
+    return ReconciliationAttentionCategory.MANUAL_RESOLUTION;
+  if (
+    record.order.status === OrderStatus.PENDING_PAYMENT &&
+    record.status === PaymentAttemptStatus.FAILED
+  )
+    return ReconciliationAttentionCategory.PAYMENT_FAILED;
+  if (
+    record.order.status === OrderStatus.PENDING_PAYMENT &&
+    record.status === PaymentAttemptStatus.PROCESSING
+  )
+    return ReconciliationAttentionCategory.PAYMENT_PROCESSING;
+  return ReconciliationAttentionCategory.NONE;
+}
+
+function providerName(value: string): 'STRIPE' | 'STUB' {
+  if (value.toLowerCase() === 'stripe') return 'STRIPE';
+  if (value.toLowerCase() === 'stub') return 'STUB';
+  throw new Error('Unsupported payment provider in operations projection.');
 }
 
 @Injectable()
@@ -411,6 +497,93 @@ export class OperationsService {
       nextCursor:
         records.length > visible.length && visible.length
           ? encodeCursor(this.cursorKey, 'payments', visible.at(-1)!.createdAt, visible.at(-1)!.id)
+          : null,
+    };
+  }
+
+  async reconciliation(query: ReconciliationQueryDto, request: AuthenticatedSessionRequest) {
+    await this.assertActor(request, [RoleName.ADMINISTRATOR]);
+    const cursor = decodeCursor(this.cursorKey, query.cursor, 'reconciliation');
+    const records = await this.prisma.paymentAttempt.findMany({
+      where: {
+        ...(query.paymentStatus ? { status: query.paymentStatus } : {}),
+        AND: [
+          ...(query.orderStatus ? [{ order: { status: query.orderStatus } }] : []),
+          ...(query.compensationStatus
+            ? [{ compensation: { status: query.compensationStatus } }]
+            : []),
+          reconciliationAttentionWhere(query.attentionCategory),
+          ...(cursor
+            ? [
+                {
+                  OR: [
+                    { createdAt: { lt: new Date(cursor.createdAt) } },
+                    { createdAt: new Date(cursor.createdAt), id: { lt: cursor.id } },
+                  ],
+                },
+              ]
+            : []),
+        ],
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: this.pageSize(query) + 1,
+      select: {
+        id: true,
+        status: true,
+        provider: true,
+        providerPaymentId: true,
+        failureCode: true,
+        amountMinor: true,
+        currencyCode: true,
+        createdAt: true,
+        updatedAt: true,
+        order: { select: { reference: true, status: true } },
+        compensation: {
+          select: {
+            reason: true,
+            status: true,
+            failureCode: true,
+            providerCompensationId: true,
+          },
+        },
+      },
+    });
+    const visible = records.slice(0, this.pageSize(query));
+    return {
+      items: visible.map((payment) => ({
+        id: payment.id,
+        orderReference: payment.order.reference,
+        orderStatus: payment.order.status,
+        paymentStatus: payment.status,
+        provider: providerName(payment.provider),
+        providerPaymentReference: payment.providerPaymentId
+          ? maskAuditIdentifier(payment.providerPaymentId)
+          : null,
+        failureCode: payment.failureCode,
+        amountMinor: minor(payment.amountMinor),
+        currency: payment.currencyCode,
+        attentionCategory: reconciliationAttention(payment),
+        compensation: payment.compensation
+          ? {
+              reason: payment.compensation.reason,
+              status: payment.compensation.status,
+              failureCode: payment.compensation.failureCode,
+              providerReference: payment.compensation.providerCompensationId
+                ? maskAuditIdentifier(payment.compensation.providerCompensationId)
+                : null,
+            }
+          : null,
+        createdAt: payment.createdAt.toISOString(),
+        updatedAt: payment.updatedAt.toISOString(),
+      })),
+      nextCursor:
+        records.length > visible.length && visible.length
+          ? encodeCursor(
+              this.cursorKey,
+              'reconciliation',
+              visible.at(-1)!.createdAt,
+              visible.at(-1)!.id,
+            )
           : null,
     };
   }

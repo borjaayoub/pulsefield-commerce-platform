@@ -4,6 +4,7 @@ import { IsEnum, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } fro
 import {
   FulfillmentGroupStatus,
   OrderStatus,
+  PaymentCompensationStatus,
   PaymentAttemptStatus,
   ReservationStatus,
 } from '../generated/prisma/enums';
@@ -62,6 +63,53 @@ export class OperationsQueryDto {
   @IsEnum(FulfillmentGroupStatus)
   @IsOptional()
   fulfillmentStatus?: FulfillmentGroupStatus;
+}
+
+export enum ReconciliationAttentionCategory {
+  NONE = 'NONE',
+  PAYMENT_FAILED = 'PAYMENT_FAILED',
+  PAYMENT_PROCESSING = 'PAYMENT_PROCESSING',
+  MANUAL_RESOLUTION = 'MANUAL_RESOLUTION',
+  COMPENSATION_REQUIRED = 'COMPENSATION_REQUIRED',
+  COMPENSATION_PROCESSING = 'COMPENSATION_PROCESSING',
+  COMPENSATION_FAILED = 'COMPENSATION_FAILED',
+  COMPENSATED = 'COMPENSATED',
+}
+
+export class ReconciliationQueryDto {
+  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 25 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @IsOptional()
+  pageSize = 25;
+
+  @ApiPropertyOptional({ description: 'Opaque cursor returned by this resource.' })
+  @IsString()
+  @MaxLength(512)
+  @IsOptional()
+  cursor?: string;
+
+  @ApiPropertyOptional({ enum: PaymentAttemptStatus })
+  @IsEnum(PaymentAttemptStatus)
+  @IsOptional()
+  paymentStatus?: PaymentAttemptStatus;
+
+  @ApiPropertyOptional({ enum: OrderStatus })
+  @IsEnum(OrderStatus)
+  @IsOptional()
+  orderStatus?: OrderStatus;
+
+  @ApiPropertyOptional({ enum: PaymentCompensationStatus })
+  @IsEnum(PaymentCompensationStatus)
+  @IsOptional()
+  compensationStatus?: PaymentCompensationStatus;
+
+  @ApiPropertyOptional({ enum: ReconciliationAttentionCategory })
+  @IsEnum(ReconciliationAttentionCategory)
+  @IsOptional()
+  attentionCategory?: ReconciliationAttentionCategory;
 }
 
 export class OperationsPageDto {
@@ -123,6 +171,27 @@ export class OperationsPaymentItemDto {
   currency!: string;
   failureCode!: string | null;
   createdAt!: string;
+}
+
+export class OperationsReconciliationItemDto {
+  id!: string;
+  orderReference!: string;
+  orderStatus!: OrderStatus;
+  paymentStatus!: PaymentAttemptStatus;
+  provider!: 'STRIPE' | 'STUB';
+  providerPaymentReference!: string | null;
+  failureCode!: string | null;
+  amountMinor!: number;
+  currency!: string;
+  attentionCategory!: ReconciliationAttentionCategory;
+  compensation!: {
+    reason: string;
+    status: PaymentCompensationStatus;
+    failureCode: string | null;
+    providerReference: string | null;
+  } | null;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 export class OperationsFulfillmentItemDto {

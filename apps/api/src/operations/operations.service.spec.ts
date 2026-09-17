@@ -1,9 +1,19 @@
 import { ForbiddenException } from '@nestjs/common';
-import { AccountStatus, RoleName } from '../generated/prisma/enums';
+import {
+  AccountStatus,
+  OrderStatus,
+  PaymentAttemptStatus,
+  PaymentCompensationStatus,
+  RoleName,
+} from '../generated/prisma/enums';
 import type { PrismaService } from '../database/prisma.service';
 import type { AuthenticatedSessionRequest } from '../identity/session-authentication.guard';
 import { OperationsService } from './operations.service';
-import { OperationsQueryDto } from './operations.dto';
+import {
+  OperationsQueryDto,
+  ReconciliationAttentionCategory,
+  ReconciliationQueryDto,
+} from './operations.dto';
 
 const adminRequest = (roles: RoleName[] = [RoleName.ADMINISTRATOR]) =>
   ({
@@ -12,6 +22,12 @@ const adminRequest = (roles: RoleName[] = [RoleName.ADMINISTRATOR]) =>
 
 function query(overrides: Partial<OperationsQueryDto> = {}): OperationsQueryDto {
   return Object.assign(new OperationsQueryDto(), overrides);
+}
+
+function reconciliationQuery(
+  overrides: Partial<ReconciliationQueryDto> = {},
+): ReconciliationQueryDto {
+  return Object.assign(new ReconciliationQueryDto(), overrides);
 }
 
 function prismaMock(overrides: Record<string, unknown> = {}) {
@@ -59,6 +75,9 @@ describe('OperationsService', () => {
     await expect(
       service.catalog(query(), adminRequest([RoleName.FULFILLER])),
     ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.reconciliation(reconciliationQuery(), adminRequest([RoleName.FULFILLER])),
+    ).rejects.toBeInstanceOf(ForbiddenException);
     await expect(service.fulfillment(query(), adminRequest([RoleName.FULFILLER]))).resolves.toEqual(
       { items: [], nextCursor: null },
     );
@@ -75,8 +94,277 @@ describe('OperationsService', () => {
     await expect(service.reservations(query(), request)).resolves.toBeDefined();
     await expect(service.orders(query(), request)).resolves.toBeDefined();
     await expect(service.payments(query(), request)).resolves.toBeDefined();
+    await expect(service.reconciliation(reconciliationQuery(), request)).resolves.toBeDefined();
     await expect(service.fulfillment(query(), request)).resolves.toBeDefined();
     await expect(service.audit(query(), request)).resolves.toBeDefined();
+  });
+
+  it('returns masked, payment-centered reconciliation evidence without sensitive fields', async () => {
+    const createdAt = new Date('2026-09-14T10:00:00.000Z');
+    const updatedAt = new Date('2026-09-14T10:05:00.000Z');
+    const prisma = prismaMock({
+      paymentAttempt: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'payment-1',
+            status: PaymentAttemptStatus.SUCCEEDED,
+            provider: 'stripe',
+            providerPaymentId: 'pi_sensitive_12345678',
+            failureCode: null,
+            amountMinor: 12500n,
+            currencyCode: 'USD',
+            createdAt,
+            updatedAt,
+            order: { reference: 'PF-100', status: OrderStatus.MANUAL_RESOLUTION },
+            compensation: {
+              reason: 'LATE_SUCCESS_STOCK_UNAVAILABLE',
+              status: PaymentCompensationStatus.FAILED,
+              failureCode: 'provider_declined',
+              providerCompensationId: 're_sensitive_87654321',
+            },
+          },
+        ]),
+      },
+    });
+    const result = await new OperationsService(
+      prisma,
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    ).reconciliation(reconciliationQuery(), adminRequest());
+
+    expect(result.items[0]).toEqual({
+      id: 'payment-1',
+      orderReference: 'PF-100',
+      orderStatus: 'MANUAL_RESOLUTION',
+      paymentStatus: 'SUCCEEDED',
+      provider: 'STRIPE',
+      providerPaymentReference: '***5678',
+      failureCode: null,
+      amountMinor: 12500,
+      currency: 'USD',
+      attentionCategory: 'COMPENSATION_FAILED',
+      compensation: {
+        reason: 'LATE_SUCCESS_STOCK_UNAVAILABLE',
+        status: 'FAILED',
+        failureCode: 'provider_declined',
+        providerReference: '***4321',
+      },
+      createdAt: createdAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
+    });
+    expect(JSON.stringify(result.items[0])).not.toMatch(
+      /pi_sensitive|re_sensitive|paymentMethod|webhook|normalized|payload/iu,
+    );
+  });
+
+  it.each([
+    [null, OrderStatus.CONFIRMED, PaymentAttemptStatus.SUCCEEDED, 'NONE'],
+    [null, OrderStatus.CONFIRMED, PaymentAttemptStatus.FAILED, 'NONE'],
+    [null, OrderStatus.CONFIRMED, PaymentAttemptStatus.PROCESSING, 'NONE'],
+    [null, OrderStatus.PENDING_PAYMENT, PaymentAttemptStatus.FAILED, 'PAYMENT_FAILED'],
+    [null, OrderStatus.PENDING_PAYMENT, PaymentAttemptStatus.PROCESSING, 'PAYMENT_PROCESSING'],
+    [null, OrderStatus.MANUAL_RESOLUTION, PaymentAttemptStatus.FAILED, 'MANUAL_RESOLUTION'],
+    [
+      PaymentCompensationStatus.REQUIRED,
+      OrderStatus.MANUAL_RESOLUTION,
+      PaymentAttemptStatus.SUCCEEDED,
+      'COMPENSATION_REQUIRED',
+    ],
+    [
+      PaymentCompensationStatus.PROCESSING,
+      OrderStatus.MANUAL_RESOLUTION,
+      PaymentAttemptStatus.SUCCEEDED,
+      'COMPENSATION_PROCESSING',
+    ],
+    [
+      PaymentCompensationStatus.FAILED,
+      OrderStatus.MANUAL_RESOLUTION,
+      PaymentAttemptStatus.SUCCEEDED,
+      'COMPENSATION_FAILED',
+    ],
+    [
+      PaymentCompensationStatus.SUCCEEDED,
+      OrderStatus.MANUAL_RESOLUTION,
+      PaymentAttemptStatus.SUCCEEDED,
+      'COMPENSATED',
+    ],
+  ])(
+    'derives attention from compensation %s, order %s, and payment %s',
+    async (compensationStatus, orderStatus, paymentStatus, expected) => {
+      const now = new Date();
+      const prisma = prismaMock({
+        paymentAttempt: {
+          findMany: jest.fn().mockResolvedValue([
+            {
+              id: 'payment-1',
+              status: paymentStatus,
+              provider: 'stub',
+              providerPaymentId: null,
+              failureCode: null,
+              amountMinor: 100n,
+              currencyCode: 'USD',
+              createdAt: now,
+              updatedAt: now,
+              order: { reference: 'PF-1', status: orderStatus },
+              compensation: compensationStatus
+                ? {
+                    reason: 'LATE_SUCCESS_STOCK_UNAVAILABLE',
+                    status: compensationStatus,
+                    failureCode: null,
+                    providerCompensationId: null,
+                  }
+                : null,
+            },
+          ]),
+        },
+      });
+      const result = await new OperationsService(
+        prisma,
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      ).reconciliation(reconciliationQuery(), adminRequest());
+      expect(result.items[0]?.attentionCategory).toBe(expected);
+    },
+  );
+
+  it('applies bounded reconciliation filters and binds its cursor to the resource', async () => {
+    const now = new Date('2026-09-14T10:00:00.000Z');
+    const findMany = jest.fn().mockResolvedValue([
+      {
+        id: 'payment-1',
+        status: PaymentAttemptStatus.FAILED,
+        provider: 'stub',
+        providerPaymentId: null,
+        failureCode: 'declined',
+        amountMinor: 100n,
+        currencyCode: 'USD',
+        createdAt: now,
+        updatedAt: now,
+        order: { reference: 'PF-1', status: OrderStatus.PENDING_PAYMENT },
+        compensation: null,
+      },
+      {
+        id: 'payment-0',
+        status: PaymentAttemptStatus.FAILED,
+        provider: 'stub',
+        providerPaymentId: null,
+        failureCode: 'declined',
+        amountMinor: 100n,
+        currencyCode: 'USD',
+        createdAt: now,
+        updatedAt: now,
+        order: { reference: 'PF-0', status: OrderStatus.PENDING_PAYMENT },
+        compensation: null,
+      },
+    ]);
+    const service = new OperationsService(
+      prismaMock({ paymentAttempt: { findMany } }),
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    );
+    const first = await service.reconciliation(
+      reconciliationQuery({
+        pageSize: 1,
+        paymentStatus: PaymentAttemptStatus.FAILED,
+        orderStatus: OrderStatus.PENDING_PAYMENT,
+        attentionCategory: ReconciliationAttentionCategory.PAYMENT_FAILED,
+      }),
+      adminRequest(),
+    );
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 2,
+        where: expect.objectContaining({
+          status: PaymentAttemptStatus.FAILED,
+          AND: expect.arrayContaining([
+            { order: { status: OrderStatus.PENDING_PAYMENT } },
+            {
+              compensation: null,
+              status: PaymentAttemptStatus.FAILED,
+              order: { status: OrderStatus.PENDING_PAYMENT },
+            },
+          ]),
+        }),
+      }),
+    );
+    await expect(
+      service.payments(query({ cursor: first.nextCursor! }), adminRequest()),
+    ).rejects.toBeInstanceOf(Error);
+  });
+
+  it('filters confirmed historical failed and processing attempts as no current attention', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    await new OperationsService(
+      prismaMock({ paymentAttempt: { findMany } }),
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    ).reconciliation(
+      reconciliationQuery({
+        orderStatus: OrderStatus.CONFIRMED,
+        attentionCategory: ReconciliationAttentionCategory.NONE,
+      }),
+      adminRequest(),
+    );
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            { order: { status: OrderStatus.CONFIRMED } },
+            {
+              compensation: null,
+              order: { status: { not: OrderStatus.MANUAL_RESOLUTION } },
+              OR: [
+                { order: { status: { not: OrderStatus.PENDING_PAYMENT } } },
+                {
+                  status: {
+                    in: [
+                      PaymentAttemptStatus.REQUIRES_PAYMENT_METHOD,
+                      PaymentAttemptStatus.SUCCEEDED,
+                    ],
+                  },
+                },
+              ],
+            },
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('rejects unsafe reconciliation money and unknown provider values', async () => {
+    const now = new Date();
+    const base = {
+      id: 'payment-1',
+      status: PaymentAttemptStatus.SUCCEEDED,
+      providerPaymentId: null,
+      failureCode: null,
+      amountMinor: BigInt(Number.MAX_SAFE_INTEGER) + 1n,
+      currencyCode: 'USD',
+      createdAt: now,
+      updatedAt: now,
+      order: { reference: 'PF-1', status: OrderStatus.CONFIRMED },
+      compensation: null,
+    };
+    const unsafeMoney = new OperationsService(
+      prismaMock({
+        paymentAttempt: { findMany: jest.fn().mockResolvedValue([{ ...base, provider: 'stub' }]) },
+      }),
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    );
+    await expect(unsafeMoney.reconciliation(reconciliationQuery(), adminRequest())).rejects.toThrow(
+      'Unsafe monetary value.',
+    );
+
+    const unknownProvider = new OperationsService(
+      prismaMock({
+        paymentAttempt: {
+          findMany: jest
+            .fn()
+            .mockResolvedValue([{ ...base, amountMinor: 100n, provider: 'unexpected' }]),
+        },
+      }),
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    );
+    await expect(
+      unknownProvider.reconciliation(reconciliationQuery(), adminRequest()),
+    ).rejects.toThrow('Unsupported payment provider in operations projection.');
   });
 
   it('revalidates active verified persisted roles instead of trusting session claims', async () => {

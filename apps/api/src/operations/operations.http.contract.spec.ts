@@ -4,7 +4,11 @@ import { validate } from 'class-validator';
 import { RoleName } from '../generated/prisma/enums';
 import { REQUIRED_ROLES_METADATA } from '../identity/require-roles.decorator';
 import { OperationsController } from './operations.controller';
-import { OperationsQueryDto } from './operations.dto';
+import {
+  OperationsQueryDto,
+  ReconciliationAttentionCategory,
+  ReconciliationQueryDto,
+} from './operations.dto';
 
 describe('OperationsController contract', () => {
   const service = {
@@ -13,6 +17,7 @@ describe('OperationsController contract', () => {
     reservations: jest.fn(),
     orders: jest.fn(),
     payments: jest.fn(),
+    reconciliation: jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
     fulfillment: jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
     audit: jest.fn(),
   };
@@ -28,6 +33,16 @@ describe('OperationsController contract', () => {
     expect(service.catalog).toHaveBeenCalledWith({ pageSize: 25 }, request);
   });
 
+  it('marks reconciliation no-store and delegates its bounded query', async () => {
+    const query = {
+      pageSize: 10,
+      attentionCategory: ReconciliationAttentionCategory.PAYMENT_FAILED,
+    };
+    await controller.reconciliation(query, request, response as never);
+    expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
+    expect(service.reconciliation).toHaveBeenCalledWith(query, request);
+  });
+
   it('publishes the administrator and fulfiller role matrix', () => {
     expect(
       Reflect.getMetadata(REQUIRED_ROLES_METADATA, OperationsController.prototype.catalog),
@@ -38,6 +53,9 @@ describe('OperationsController contract', () => {
     expect(
       Reflect.getMetadata(REQUIRED_ROLES_METADATA, OperationsController.prototype.fulfillment),
     ).toEqual([RoleName.ADMINISTRATOR, RoleName.FULFILLER]);
+    expect(
+      Reflect.getMetadata(REQUIRED_ROLES_METADATA, OperationsController.prototype.reconciliation),
+    ).toEqual([RoleName.ADMINISTRATOR]);
     expect(
       Reflect.getMetadata(REQUIRED_ROLES_METADATA, OperationsController.prototype.audit),
     ).toEqual([RoleName.ADMINISTRATOR]);
@@ -51,6 +69,40 @@ describe('OperationsController contract', () => {
     ).toBeGreaterThan(0);
     expect(
       (await validate(plainToInstance(OperationsQueryDto, { pageSize: 0 }))).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('validates reconciliation filters against finite status sets', async () => {
+    expect(new ReconciliationQueryDto().pageSize).toBe(25);
+    expect(
+      (
+        await validate(
+          plainToInstance(ReconciliationQueryDto, {
+            paymentStatus: 'FAILED',
+            orderStatus: 'MANUAL_RESOLUTION',
+            compensationStatus: 'REQUIRED',
+            attentionCategory: 'COMPENSATION_REQUIRED',
+          }),
+        )
+      ).length,
+    ).toBe(0);
+    expect(
+      (
+        await validate(
+          plainToInstance(ReconciliationQueryDto, {
+            compensationStatus: 'UNKNOWN',
+            attentionCategory: 'RETRY_NOW',
+          }),
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      (
+        await validate(plainToInstance(ReconciliationQueryDto, { sku: 'IGNORED' }), {
+          whitelist: true,
+          forbidNonWhitelisted: true,
+        })
+      ).length,
     ).toBeGreaterThan(0);
   });
 });

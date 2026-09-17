@@ -11,7 +11,7 @@ import {
   AuthenticatedSessionRequest,
   SessionAuthenticationGuard,
 } from '../identity/session-authentication.guard';
-import { OperationsQueryDto } from './operations.dto';
+import { OperationsQueryDto, ReconciliationQueryDto } from './operations.dto';
 import { OperationsService } from './operations.service';
 
 @ApiTags('Staff operations')
@@ -98,6 +98,20 @@ export class OperationsController {
   ) {
     this.noStore(response);
     return this.operations.payments(query, request);
+  }
+
+  @Get('reconciliation')
+  @RequireRoles(RoleName.ADMINISTRATOR)
+  @ApiOkResponse()
+  @ApiResponse({ status: 401, type: ProblemDetailsDto })
+  @ApiResponse({ status: 403, type: ProblemDetailsDto })
+  reconciliation(
+    @Query() query: ReconciliationQueryDto,
+    @Req() request: AuthenticatedSessionRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    this.noStore(response);
+    return this.operations.reconciliation(query, request);
   }
 
   @Get('fulfillment')

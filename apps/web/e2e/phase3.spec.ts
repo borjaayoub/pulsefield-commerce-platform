@@ -158,6 +158,14 @@ test.describe('Phase 3 critical local journey', () => {
     await expect(adminTable).not.toContainText('Demo Walkthrough');
     await expect(adminTable).not.toContainText('Test Street');
     await expect(adminTable).not.toContainText('78701');
+    await adminPage.getByRole('button', { name: 'Reconciliation' }).click();
+    await expect(adminPage.getByText(/Read-only payment and recovery evidence/u)).toBeVisible();
+    await expect(adminPage.locator('table')).toBeVisible();
+    await expect(adminPage.getByRole('columnheader', { name: 'Payment reference' })).toBeVisible();
+    await expect(adminPage.getByRole('columnheader', { name: 'Attention' })).toBeVisible();
+    await expect(
+      adminPage.getByRole('button', { name: /replay|retry|refund|resolve/iu }),
+    ).toHaveCount(0);
     await adminPage.getByRole('button', { name: 'Fulfillment' }).click();
     await expect(adminPage.locator('table')).toBeVisible();
     // Administrator is read-only for fulfillment transitions, even when viewing the queue.
@@ -173,6 +181,7 @@ test.describe('Phase 3 critical local journey', () => {
     );
     await expect(fulfillerPage.getByRole('heading', { name: 'Fulfillment' })).toBeVisible();
     await expect(fulfillerPage.getByRole('button', { name: 'Catalog' })).toHaveCount(0);
+    await expect(fulfillerPage.getByRole('button', { name: 'Reconciliation' })).toHaveCount(0);
     const fulfillmentRow = fulfillerPage.locator('tbody tr').filter({ hasText: orderReference! });
     await expect(fulfillmentRow.getByRole('button', { name: 'Advance' })).toBeVisible();
     await advanceOnce(fulfillerPage, fulfillmentRow, 'PICKING');
