@@ -174,6 +174,18 @@ enum WarehouseStatus {
   INACTIVE
 }
 
+enum FulfillmentRegion {
+  US
+  MOROCCO
+  EU
+}
+
+enum InventoryAllocationPolicyLifecycle {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
 enum InventoryMovementType {
   INITIAL_STOCK
   ADJUSTMENT
@@ -507,19 +519,59 @@ model VariantPrice {
 }
 
 model Warehouse {
-  id                String                     @id @default(uuid()) @db.Uuid
-  code              String                     @unique @db.VarChar(64)
-  name              String                     @db.VarChar(120)
-  countryCode       String                     @db.Char(2)
-  status            WarehouseStatus            @default(ACTIVE)
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
-  balances          InventoryBalance[]
-  movements         InventoryMovement[]
-  reservationItems  InventoryReservationItem[]
-  fulfillmentGroups FulfillmentGroup[]
+  id                          String                               @id @default(uuid()) @db.Uuid
+  code                        String                               @unique @db.VarChar(64)
+  name                        String                               @db.VarChar(120)
+  countryCode                 String                               @db.Char(2)
+  fulfillmentRegion           FulfillmentRegion
+  status                      WarehouseStatus                      @default(ACTIVE)
+  createdAt                   DateTime                             @default(now())
+  updatedAt                   DateTime                             @updatedAt
+  balances                    InventoryBalance[]
+  movements                   InventoryMovement[]
+  reservationItems            InventoryReservationItem[]
+  fulfillmentGroups           FulfillmentGroup[]
+  allocationPolicyAssignments InventoryAllocationPolicyWarehouse[]
 
   @@index([status, countryCode])
+  @@index([status, fulfillmentRegion, code])
+}
+
+model InventoryAllocationPolicy {
+  id                String                             @id @default(uuid()) @db.Uuid
+  code              String                             @unique @db.VarChar(64)
+  destinationRegion FulfillmentRegion
+  createdAt         DateTime                           @default(now())
+  versions          InventoryAllocationPolicyVersion[]
+}
+
+model InventoryAllocationPolicyVersion {
+  id          String                               @id @default(uuid()) @db.Uuid
+  policy      InventoryAllocationPolicy            @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  policyId    String                               @db.Uuid
+  version     Int
+  lifecycle   InventoryAllocationPolicyLifecycle   @default(DRAFT)
+  activatedAt DateTime?
+  retiredAt   DateTime?
+  createdAt   DateTime                             @default(now())
+  updatedAt   DateTime                             @updatedAt
+  warehouses  InventoryAllocationPolicyWarehouse[]
+
+  @@unique([policyId, version])
+  @@index([policyId, lifecycle])
+}
+
+model InventoryAllocationPolicyWarehouse {
+  policyVersion   InventoryAllocationPolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  policyVersionId String                           @db.Uuid
+  warehouse       Warehouse                        @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  warehouseId     String                           @db.Uuid
+  priority        Int
+  createdAt       DateTime                         @default(now())
+
+  @@id([policyVersionId, warehouseId])
+  @@unique([policyVersionId, priority])
+  @@index([warehouseId, policyVersionId])
 }
 
 model InventoryBalance {
@@ -647,7 +699,7 @@ model InventoryReservationItem {
   variantId     String               @db.Uuid
   quantity      Int
 
-  @@unique([reservationId, variantId])
+  @@unique([reservationId, warehouseId, variantId])
   @@index([warehouseId, variantId])
 }
 

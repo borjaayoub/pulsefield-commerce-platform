@@ -390,7 +390,7 @@ describe('reservation expiry and staff fulfillment database integration', () => 
     });
     const staff = await createStaff();
     const before = await prisma.inventoryBalance.findFirstOrThrow({
-      where: { variantId: VARIANT_ID },
+      where: { variantId: VARIANT_ID, warehouseId: group.warehouseId },
     });
 
     const picking = await fulfillment.transition(

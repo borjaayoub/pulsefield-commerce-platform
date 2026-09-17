@@ -4,6 +4,8 @@ import { PrismaService } from '../database/prisma.service';
 import {
   AuditActorType,
   CatalogLifecycle,
+  FulfillmentRegion,
+  InventoryAllocationPolicyLifecycle,
   InventoryMovementType,
   PriceBookVersionLifecycle,
 } from '../generated/prisma/enums';
@@ -22,6 +24,9 @@ describe('catalog and inventory foundation database integration', () => {
       TRUNCATE TABLE
         "InventoryMovement",
         "InventoryBalance",
+        "InventoryAllocationPolicyWarehouse",
+        "InventoryAllocationPolicyVersion",
+        "InventoryAllocationPolicy",
         "Warehouse",
         "VariantPrice",
         "PriceBookVersion",
@@ -43,7 +48,7 @@ describe('catalog and inventory foundation database integration', () => {
     await prisma.$disconnect();
   });
 
-  it('repeats the deterministic US/USD seed without duplicating commerce records', async () => {
+  it('repeats the deterministic regional inventory seed without duplicating commerce records', async () => {
     await seedPhase3Commerce(prisma);
     await seedPhase3Commerce(prisma);
 
@@ -54,8 +59,21 @@ describe('catalog and inventory foundation database integration', () => {
     await expect(prisma.priceBook.count()).resolves.toBe(PHASE_3_SEED_COUNTS.priceBooks);
     await expect(prisma.warehouse.count()).resolves.toBe(PHASE_3_SEED_COUNTS.warehouses);
     await expect(prisma.variantPrice.count()).resolves.toBe(PHASE_3_SEED_COUNTS.variants);
-    await expect(prisma.inventoryBalance.count()).resolves.toBe(PHASE_3_SEED_COUNTS.variants);
-    await expect(prisma.inventoryMovement.count()).resolves.toBe(PHASE_3_SEED_COUNTS.variants);
+    await expect(prisma.inventoryBalance.count()).resolves.toBe(
+      PHASE_3_SEED_COUNTS.inventoryBalances,
+    );
+    await expect(prisma.inventoryMovement.count()).resolves.toBe(
+      PHASE_3_SEED_COUNTS.inventoryMovements,
+    );
+    await expect(prisma.inventoryAllocationPolicy.count()).resolves.toBe(
+      PHASE_3_SEED_COUNTS.allocationPolicies,
+    );
+    await expect(prisma.inventoryAllocationPolicyVersion.count()).resolves.toBe(
+      PHASE_3_SEED_COUNTS.allocationPolicyVersions,
+    );
+    await expect(prisma.inventoryAllocationPolicyWarehouse.count()).resolves.toBe(
+      PHASE_3_SEED_COUNTS.allocationPolicyWarehouses,
+    );
 
     const media = await prisma.productMedia.findMany({ orderBy: { storageKey: 'asc' } });
     expect(
@@ -89,7 +107,187 @@ describe('catalog and inventory foundation database integration', () => {
     ).toBe(true);
     await expect(
       prisma.inventoryMovement.count({ where: { type: InventoryMovementType.INITIAL_STOCK } }),
-    ).resolves.toBe(PHASE_3_SEED_COUNTS.variants);
+    ).resolves.toBe(PHASE_3_SEED_COUNTS.inventoryMovements);
+
+    await expect(
+      prisma.inventoryAllocationPolicy.findUniqueOrThrow({
+        where: { code: 'US-FULFILLMENT' },
+        include: {
+          versions: {
+            include: {
+              warehouses: {
+                orderBy: { priority: 'asc' },
+                include: { warehouse: true },
+              },
+            },
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      destinationRegion: FulfillmentRegion.US,
+      versions: [
+        {
+          version: 1,
+          lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE,
+          warehouses: [
+            { priority: 1, warehouse: { code: 'US-EAST-01', fulfillmentRegion: 'US' } },
+            { priority: 2, warehouse: { code: 'EU-CENTRAL-01', fulfillmentRegion: 'EU' } },
+            { priority: 3, warehouse: { code: 'MA-CASA-01', fulfillmentRegion: 'MOROCCO' } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('keeps activated allocation policy and warehouse-region history immutable', async () => {
+    await seedPhase3Commerce(prisma);
+    const policy = await prisma.inventoryAllocationPolicy.findUniqueOrThrow({
+      where: { code: 'US-FULFILLMENT' },
+      include: { versions: { include: { warehouses: true } } },
+    });
+    const version = policy.versions[0]!;
+    const assignment = version.warehouses[0]!;
+    const warehouse = await prisma.warehouse.findUniqueOrThrow({
+      where: { id: assignment.warehouseId },
+    });
+
+    await expect(
+      prisma.warehouse.update({
+        where: { id: warehouse.id },
+        data: { fulfillmentRegion: FulfillmentRegion.EU },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      prisma.inventoryAllocationPolicyWarehouse.update({
+        where: {
+          policyVersionId_warehouseId: {
+            policyVersionId: version.id,
+            warehouseId: assignment.warehouseId,
+          },
+        },
+        data: { priority: 10 },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      prisma.inventoryAllocationPolicy.delete({ where: { id: policy.id } }),
+    ).rejects.toThrow();
+  });
+
+  it('activates only complete region-matched policy drafts and keeps one active version', async () => {
+    await seedPhase3Commerce(prisma);
+    const policy = await prisma.inventoryAllocationPolicy.findUniqueOrThrow({
+      where: { code: 'US-FULFILLMENT' },
+    });
+    const warehouses = await prisma.warehouse.findMany({ orderBy: { code: 'asc' } });
+    const usWarehouse = warehouses.find(
+      ({ fulfillmentRegion }) => fulfillmentRegion === FulfillmentRegion.US,
+    )!;
+    const euWarehouse = warehouses.find(
+      ({ fulfillmentRegion }) => fulfillmentRegion === FulfillmentRegion.EU,
+    )!;
+
+    await expect(
+      prisma.inventoryAllocationPolicyVersion.create({
+        data: {
+          policyId: policy.id,
+          version: 99,
+          lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE,
+          activatedAt: new Date(),
+        },
+      }),
+    ).rejects.toThrow();
+
+    const secondVersion = await prisma.inventoryAllocationPolicyVersion.create({
+      data: { policyId: policy.id, version: 2 },
+    });
+    await prisma.inventoryAllocationPolicyWarehouse.create({
+      data: { policyVersionId: secondVersion.id, warehouseId: usWarehouse.id, priority: 1 },
+    });
+    await expect(
+      prisma.inventoryAllocationPolicyVersion.update({
+        where: { id: secondVersion.id },
+        data: {
+          lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE,
+          activatedAt: new Date(),
+        },
+      }),
+    ).rejects.toThrow();
+
+    const gappedPolicy = await prisma.inventoryAllocationPolicy.create({
+      data: { code: 'US-GAPPED', destinationRegion: FulfillmentRegion.US },
+    });
+    const gappedVersion = await prisma.inventoryAllocationPolicyVersion.create({
+      data: { policyId: gappedPolicy.id, version: 1 },
+    });
+    await prisma.inventoryAllocationPolicyWarehouse.createMany({
+      data: [
+        { policyVersionId: gappedVersion.id, warehouseId: usWarehouse.id, priority: 1 },
+        { policyVersionId: gappedVersion.id, warehouseId: euWarehouse.id, priority: 3 },
+      ],
+    });
+    await expect(
+      prisma.inventoryAllocationPolicyVersion.update({
+        where: { id: gappedVersion.id },
+        data: {
+          lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE,
+          activatedAt: new Date(),
+        },
+      }),
+    ).rejects.toThrow();
+
+    const mismatchedPolicy = await prisma.inventoryAllocationPolicy.create({
+      data: { code: 'MA-MISMATCHED', destinationRegion: FulfillmentRegion.MOROCCO },
+    });
+    const mismatchedVersion = await prisma.inventoryAllocationPolicyVersion.create({
+      data: { policyId: mismatchedPolicy.id, version: 1 },
+    });
+    await prisma.inventoryAllocationPolicyWarehouse.create({
+      data: {
+        policyVersionId: mismatchedVersion.id,
+        warehouseId: usWarehouse.id,
+        priority: 1,
+      },
+    });
+    await expect(
+      prisma.inventoryAllocationPolicyVersion.update({
+        where: { id: mismatchedVersion.id },
+        data: {
+          lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE,
+          activatedAt: new Date(),
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('allows one reservation variant to be allocated across warehouses', async () => {
+    await seedPhase3Commerce(prisma);
+    const variant = await prisma.productVariant.findFirstOrThrow();
+    const warehouses = await prisma.warehouse.findMany({ orderBy: { code: 'asc' }, take: 2 });
+    const reservation = await prisma.inventoryReservation.create({
+      data: { expiresAt: new Date(Date.now() + 60_000) },
+    });
+
+    await prisma.inventoryReservationItem.createMany({
+      data: warehouses.map((warehouse) => ({
+        reservationId: reservation.id,
+        warehouseId: warehouse.id,
+        variantId: variant.id,
+        quantity: 1,
+      })),
+    });
+    await expect(
+      prisma.inventoryReservationItem.count({ where: { reservationId: reservation.id } }),
+    ).resolves.toBe(2);
+    await expect(
+      prisma.inventoryReservationItem.create({
+        data: {
+          reservationId: reservation.id,
+          warehouseId: warehouses[0]!.id,
+          variantId: variant.id,
+          quantity: 1,
+        },
+      }),
+    ).rejects.toThrow();
   });
 
   it('installs trigram indexes for the case-insensitive search columns', async () => {

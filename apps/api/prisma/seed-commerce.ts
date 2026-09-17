@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 import {
   AuditActorType,
   CatalogLifecycle,
+  FulfillmentRegion,
+  InventoryAllocationPolicyLifecycle,
   InventoryMovementType,
   PriceBookVersionLifecycle,
   WarehouseStatus,
@@ -13,6 +15,10 @@ const SEED_TIME = new Date('2026-09-10T00:00:00.000Z');
 const US_PRICE_BOOK_ID = '60000000-0000-4000-8000-000000000001';
 const US_PRICE_BOOK_VERSION_ID = '61000000-0000-4000-8000-000000000001';
 const US_WAREHOUSE_ID = '70000000-0000-4000-8000-000000000001';
+const MOROCCO_WAREHOUSE_ID = '70000000-0000-4000-8000-000000000002';
+const EU_WAREHOUSE_ID = '70000000-0000-4000-8000-000000000003';
+const US_ALLOCATION_POLICY_ID = '74000000-0000-4000-8000-000000000001';
+const US_ALLOCATION_POLICY_VERSION_ID = '74100000-0000-4000-8000-000000000001';
 const repositoryMediaRoot = resolve(process.cwd(), 'apps/web/public/catalog/seed');
 const LOCAL_MEDIA_ROOT = existsSync(repositoryMediaRoot)
   ? repositoryMediaRoot
@@ -220,13 +226,63 @@ const variants = products.flatMap((product, productIndex) =>
   })),
 );
 
+const warehouses = [
+  {
+    id: US_WAREHOUSE_ID,
+    code: 'US-EAST-01',
+    name: 'United States East',
+    countryCode: 'US',
+    fulfillmentRegion: FulfillmentRegion.US,
+    priority: 1,
+    balanceGroup: '71000000',
+    movementGroup: '72000000',
+    commandGroup: '73000000',
+    actorId: 'system:phase-3-seed',
+    reason: 'Create deterministic Phase 3 opening stock.',
+    onHand: (index: number) => 12 + (index % 5) * 3,
+  },
+  {
+    id: EU_WAREHOUSE_ID,
+    code: 'EU-CENTRAL-01',
+    name: 'European Union Central',
+    countryCode: 'DE',
+    fulfillmentRegion: FulfillmentRegion.EU,
+    priority: 2,
+    balanceGroup: '71100000',
+    movementGroup: '72100000',
+    commandGroup: '73100000',
+    actorId: 'system:phase-5-seed',
+    reason: 'Create deterministic Phase 5 EU opening stock.',
+    onHand: (index: number) => 6 + (index % 4) * 2,
+  },
+  {
+    id: MOROCCO_WAREHOUSE_ID,
+    code: 'MA-CASA-01',
+    name: 'Morocco Casablanca',
+    countryCode: 'MA',
+    fulfillmentRegion: FulfillmentRegion.MOROCCO,
+    priority: 3,
+    balanceGroup: '71200000',
+    movementGroup: '72200000',
+    commandGroup: '73200000',
+    actorId: 'system:phase-5-seed',
+    reason: 'Create deterministic Phase 5 Morocco opening stock.',
+    onHand: (index: number) => 4 + (index % 3) * 2,
+  },
+] as const;
+
 export const PHASE_3_SEED_COUNTS = {
   products: products.length,
   variants: variants.length,
   categories: categories.length,
   media: products.length,
   priceBooks: 1,
-  warehouses: 1,
+  warehouses: warehouses.length,
+  inventoryBalances: variants.length * warehouses.length,
+  inventoryMovements: variants.length * warehouses.length,
+  allocationPolicies: 1,
+  allocationPolicyVersions: 1,
+  allocationPolicyWarehouses: warehouses.length,
 } as const;
 
 export async function seedPhase3Commerce(prisma: PrismaClient): Promise<void> {
@@ -377,61 +433,107 @@ export async function seedPhase3Commerce(prisma: PrismaClient): Promise<void> {
       });
     }
 
-    await transaction.warehouse.upsert({
-      where: { id: US_WAREHOUSE_ID },
+    for (const warehouse of warehouses) {
+      await transaction.warehouse.upsert({
+        where: { id: warehouse.id },
+        create: {
+          id: warehouse.id,
+          code: warehouse.code,
+          name: warehouse.name,
+          countryCode: warehouse.countryCode,
+          fulfillmentRegion: warehouse.fulfillmentRegion,
+          status: WarehouseStatus.ACTIVE,
+          createdAt: SEED_TIME,
+          updatedAt: SEED_TIME,
+        },
+        update: {},
+      });
+    }
+
+    await transaction.inventoryAllocationPolicy.upsert({
+      where: { id: US_ALLOCATION_POLICY_ID },
       create: {
-        id: US_WAREHOUSE_ID,
-        code: 'US-EAST-01',
-        name: 'United States East',
-        countryCode: 'US',
-        status: WarehouseStatus.ACTIVE,
+        id: US_ALLOCATION_POLICY_ID,
+        code: 'US-FULFILLMENT',
+        destinationRegion: FulfillmentRegion.US,
         createdAt: SEED_TIME,
-        updatedAt: SEED_TIME,
       },
       update: {},
     });
-
-    for (const [index, variant] of variants.entries()) {
-      const balanceId = seedUuid('71000000', index + 1);
-      const existingBalance = await transaction.inventoryBalance.findUnique({
-        where: { id: balanceId },
-      });
-      if (existingBalance) continue;
-
-      const onHand = 12 + (index % 5) * 3;
-      await transaction.inventoryBalance.create({
+    const allocationPolicyVersion = await transaction.inventoryAllocationPolicyVersion.findUnique({
+      where: { id: US_ALLOCATION_POLICY_VERSION_ID },
+    });
+    if (!allocationPolicyVersion) {
+      await transaction.inventoryAllocationPolicyVersion.create({
         data: {
-          id: balanceId,
-          warehouseId: US_WAREHOUSE_ID,
-          variantId: variant.id,
-          onHand,
-          reserved: 0,
-          allocated: 0,
-          damaged: 0,
+          id: US_ALLOCATION_POLICY_VERSION_ID,
+          policyId: US_ALLOCATION_POLICY_ID,
           version: 1,
+          lifecycle: InventoryAllocationPolicyLifecycle.DRAFT,
           createdAt: SEED_TIME,
           updatedAt: SEED_TIME,
         },
       });
-      await transaction.inventoryMovement.create({
+      await transaction.inventoryAllocationPolicyWarehouse.createMany({
+        data: warehouses.map((warehouse) => ({
+          policyVersionId: US_ALLOCATION_POLICY_VERSION_ID,
+          warehouseId: warehouse.id,
+          priority: warehouse.priority,
+          createdAt: SEED_TIME,
+        })),
+      });
+      await transaction.inventoryAllocationPolicyVersion.update({
+        where: { id: US_ALLOCATION_POLICY_VERSION_ID },
         data: {
-          id: seedUuid('72000000', index + 1),
-          warehouseId: US_WAREHOUSE_ID,
-          variantId: variant.id,
-          type: InventoryMovementType.INITIAL_STOCK,
-          onHandDelta: onHand,
-          resultingOnHand: onHand,
-          resultingReserved: 0,
-          resultingAllocated: 0,
-          resultingDamaged: 0,
-          commandId: seedUuid('73000000', index + 1),
-          commandSequence: 1,
-          actorType: AuditActorType.SYSTEM,
-          actorId: 'system:phase-3-seed',
-          reason: 'Create deterministic Phase 3 opening stock.',
-          occurredAt: SEED_TIME,
+          lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE,
+          activatedAt: SEED_TIME,
         },
       });
+    }
+
+    for (const warehouse of warehouses) {
+      for (const [index, variant] of variants.entries()) {
+        const balanceId = seedUuid(warehouse.balanceGroup, index + 1);
+        const existingBalance = await transaction.inventoryBalance.findUnique({
+          where: { id: balanceId },
+        });
+        if (existingBalance) continue;
+
+        const onHand = warehouse.onHand(index);
+        await transaction.inventoryBalance.create({
+          data: {
+            id: balanceId,
+            warehouseId: warehouse.id,
+            variantId: variant.id,
+            onHand,
+            reserved: 0,
+            allocated: 0,
+            damaged: 0,
+            version: 1,
+            createdAt: SEED_TIME,
+            updatedAt: SEED_TIME,
+          },
+        });
+        await transaction.inventoryMovement.create({
+          data: {
+            id: seedUuid(warehouse.movementGroup, index + 1),
+            warehouseId: warehouse.id,
+            variantId: variant.id,
+            type: InventoryMovementType.INITIAL_STOCK,
+            onHandDelta: onHand,
+            resultingOnHand: onHand,
+            resultingReserved: 0,
+            resultingAllocated: 0,
+            resultingDamaged: 0,
+            commandId: seedUuid(warehouse.commandGroup, index + 1),
+            commandSequence: 1,
+            actorType: AuditActorType.SYSTEM,
+            actorId: warehouse.actorId,
+            reason: warehouse.reason,
+            occurredAt: SEED_TIME,
+          },
+        });
+      }
     }
   });
 }

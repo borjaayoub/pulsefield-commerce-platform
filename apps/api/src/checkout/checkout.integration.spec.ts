@@ -9,6 +9,7 @@ import {
   AuditActorType,
   CartStatus,
   CommercePolicyLifecycle,
+  FulfillmentRegion,
   InventoryMovementType,
   NotificationDeliveryType,
   OrderStatus,
@@ -375,7 +376,7 @@ describe('checkout, reservation, and payment database integration', () => {
 
   it('serializes fifty competing attempts against constrained stock without overselling', async () => {
     const balance = await prisma.inventoryBalance.findFirstOrThrow({
-      where: { variantId: VARIANT_ID },
+      where: { variantId: VARIANT_ID, warehouse: { code: 'US-EAST-01' } },
     });
     const constrainedOnHand = 3;
     await prisma.inventoryBalance.update({
@@ -457,7 +458,7 @@ describe('checkout, reservation, and payment database integration', () => {
 
   it('uses the deterministic US-EAST-01 warehouse without cross-warehouse aggregation', async () => {
     const primary = await prisma.inventoryBalance.findFirstOrThrow({
-      where: { variantId: VARIANT_ID },
+      where: { variantId: VARIANT_ID, warehouse: { code: 'US-EAST-01' } },
     });
     const primaryOnHand = 1;
     await prisma.inventoryBalance.update({
@@ -487,6 +488,7 @@ describe('checkout, reservation, and payment database integration', () => {
         code: 'US-WEST-02',
         name: 'US West 02',
         countryCode: 'US',
+        fulfillmentRegion: FulfillmentRegion.US,
         status: WarehouseStatus.ACTIVE,
       },
     });
