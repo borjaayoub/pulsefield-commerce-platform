@@ -23,6 +23,14 @@ export class CartItemDto {
   @ApiProperty({ example: 'USD' }) currency!: 'USD';
   @ApiProperty() available!: number;
   @ApiProperty() purchasable!: boolean;
+  @ApiPropertyOptional({ nullable: true }) media!: CartItemMediaDto | null;
+}
+
+export class CartItemMediaDto {
+  @ApiProperty() url!: string;
+  @ApiProperty() altText!: string;
+  @ApiProperty() width!: number;
+  @ApiProperty() height!: number;
 }
 
 export class CartDto {

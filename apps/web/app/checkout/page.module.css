@@ -1,0 +1,122 @@
+.page {
+  width: min(100% - 3rem, 88rem);
+  margin: auto;
+  padding: clamp(2rem, 5vw, 4rem) 0 7rem;
+}
+.header {
+  max-width: 48rem;
+  margin-bottom: 2.5rem;
+}
+.backLink {
+  display: inline-block;
+  margin-bottom: 2rem;
+  color: var(--storefront-ink);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.header :global(.eyebrow) {
+  margin: 0 0 0.65rem;
+  color: var(--storefront-muted);
+  font-size: 0.69rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.header h1 {
+  margin: 0;
+  color: var(--storefront-ink);
+  font-family: var(--storefront-font-body);
+  font-size: clamp(3.2rem, 6vw, 6rem);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+}
+.header :global(.detail-note) {
+  margin: 1.2rem 0 0;
+  color: var(--storefront-muted);
+  line-height: 1.5;
+}
+.page :global(.cart-layout) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(19rem, 0.48fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  align-items: start;
+}
+.page :global(.cart-summary) {
+  border: 1px solid var(--storefront-border);
+  background: var(--storefront-surface);
+  padding: 1.5rem;
+}
+.page :global(.cart-layout > aside) {
+  position: sticky;
+  top: 1.25rem;
+}
+.page :global(.cart-summary h2) {
+  margin: 0 0 1.25rem;
+  font-family: var(--storefront-font-body);
+  font-size: 1.6rem;
+  letter-spacing: -0.04em;
+}
+.page :global(.quantity-control) {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.8rem 0;
+  color: var(--storefront-ink);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.page :global(.quantity-control input) {
+  min-height: 2.9rem;
+  border: 1px solid var(--storefront-border);
+  background: #fff;
+  padding: 0.6rem;
+  font: inherit;
+}
+.page :global(.cart-summary button) {
+  min-height: 3.1rem;
+  border: 1px solid var(--storefront-accent);
+  background: var(--storefront-accent);
+  padding: 0.7rem 1rem;
+  color: var(--storefront-ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+.page :global(.cart-summary fieldset) {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1.25rem 0;
+  border: 1px solid var(--storefront-border);
+  padding: 1rem;
+}
+.page :global(.cart-summary aside p),
+.page :global(.cart-summary > p) {
+  color: var(--storefront-muted);
+  line-height: 1.5;
+}
+.page :global(.cart-summary > h2) {
+  font-size: 2.5rem;
+}
+.page :global(.cart-message) {
+  max-width: 48rem;
+  margin-bottom: 1.5rem;
+}
+.page :global(.state) {
+  max-width: 45rem;
+  margin: 3rem 0;
+  border: 1px solid var(--storefront-border);
+  background: var(--storefront-surface);
+  padding: 2rem;
+}
+@media (max-width: 720px) {
+  .page {
+    width: min(100% - 2rem, 88rem);
+    padding-bottom: 4rem;
+  }
+  .page :global(.cart-layout) {
+    grid-template-columns: 1fr;
+  }
+  .page :global(.cart-layout > aside) {
+    position: static;
+  }
+}

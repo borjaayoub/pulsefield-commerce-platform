@@ -21,6 +21,9 @@ import {
 } from './cart-cookie';
 import type { CartDto } from './cart.dto';
 
+const PUBLIC_MEDIA_ROOT = '/catalog';
+const PUBLIC_MEDIA_KEY = /^catalog\/[a-z0-9-]+\/(?:[a-z0-9-]+)\.(?:svg|webp|jpg|jpeg|png)$/u;
+
 const PRICE_FILTER = {
   priceBookVersion: {
     lifecycle: PriceBookVersionLifecycle.ACTIVE,
@@ -34,7 +37,15 @@ const CART_INCLUDE = {
     include: {
       variant: {
         include: {
-          product: true,
+          product: {
+            include: {
+              media: {
+                where: { status: CatalogLifecycle.ACTIVE },
+                orderBy: { position: 'asc' },
+                take: 1,
+              },
+            },
+          },
           prices: { where: PRICE_FILTER, include: { priceBookVersion: true } },
           inventoryBalances: {
             where: { warehouse: { status: WarehouseStatus.ACTIVE, countryCode: 'US' } },
@@ -335,6 +346,16 @@ export class CartService {
         currency: 'USD' as const,
         available,
         purchasable,
+        media:
+          item.variant.product.media[0] &&
+          PUBLIC_MEDIA_KEY.test(item.variant.product.media[0].storageKey)
+            ? {
+                url: `${PUBLIC_MEDIA_ROOT}/${item.variant.product.media[0].storageKey.replace(/^catalog\//u, '')}`,
+                altText: item.variant.product.media[0].altText,
+                width: item.variant.product.media[0].width,
+                height: item.variant.product.media[0].height,
+              }
+            : null,
       };
     });
     const total = hasPricedLine ? subtotal : null;

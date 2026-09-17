@@ -1,6 +1,14 @@
 @import 'tailwindcss';
 @import '@pulse-field/design-tokens/tokens.css';
 
+@font-face {
+  font-family: 'Pulse Field Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-latin-wght-normal.woff2') format('woff2');
+}
+
 * {
   box-sizing: border-box;
 }
@@ -612,6 +620,11 @@ code {
 .operations-view h2 {
   margin-bottom: 1rem;
   font-size: 2rem;
+}
+.operations-read-only-note {
+  margin: -0.35rem 0 1.25rem;
+  max-width: 68ch;
+  font-size: 0.95rem;
 }
 .operations-table-wrap {
   overflow-x: auto;

@@ -1,0 +1,14 @@
+.shell {
+  --storefront-canvas: #f7f7f2;
+  --storefront-surface: #ffffff;
+  --storefront-ink: #101312;
+  --storefront-muted: #68706c;
+  --storefront-border: #d7dad4;
+  --storefront-accent: #c9f53b;
+  --storefront-accent-ink: #101312;
+  --storefront-font-body: 'Pulse Field Inter', Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  background: var(--storefront-canvas);
+  color: var(--storefront-ink);
+  color-scheme: light;
+}

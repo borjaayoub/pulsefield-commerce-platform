@@ -1,18 +1,25 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useState } from 'react';
-import { API_ORIGIN, CatalogList, formatUsd } from './catalog-types';
+import { useSearchParams } from 'next/navigation';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { StorefrontShell } from '../../components/storefront-shell';
+import { API_ORIGIN, CatalogList, CatalogProduct, formatUsd } from './catalog-types';
+import styles from './page.module.css';
+
+type Availability = '' | 'in-stock' | 'out-of-stock';
 
 async function loadCatalog(
   search: string,
   category: string,
+  availability: Availability,
   sort: string,
   page: number,
 ): Promise<CatalogList> {
   const params = new URLSearchParams({ pageSize: '12', sort, page: String(page) });
   if (search.trim()) params.set('search', search.trim());
   if (category) params.set('category', category);
+  if (availability) params.set('availability', availability);
   const response = await fetch(`${API_ORIGIN}/api/v1/catalog/products?${params}`, {
     headers: { Accept: 'application/json' },
   });
@@ -20,20 +27,87 @@ async function loadCatalog(
   return (await response.json()) as CatalogList;
 }
 
+function ProductCard({ product }: Readonly<{ product: CatalogProduct }>) {
+  const media = product.media[0];
+  const price = formatUsd(Math.min(...product.variants.map((variant) => variant.priceMinor)));
+  return (
+    <article className={styles.productCard}>
+      <Link href={`/catalog/${product.slug}`} className={styles.productImageLink}>
+        {media ? (
+          <img src={media.url} alt={media.altText} className={styles.productImage} />
+        ) : (
+          <span className={styles.imagePlaceholder} aria-hidden="true">
+            PULSE//FIELD
+          </span>
+        )}
+        <span className={styles.productArrow} aria-hidden="true">
+          ↗
+        </span>
+      </Link>
+      <div className={styles.productDetails}>
+        <p>{product.categories[0]?.name ?? 'Performance gear'}</p>
+        <h2>
+          <Link href={`/catalog/${product.slug}`}>{product.name}</Link>
+        </h2>
+        <div className={styles.productMeta}>
+          <strong>{price}</strong>
+          <span className={product.inStock ? styles.available : styles.unavailable}>
+            {product.inStock ? 'In stock' : 'Unavailable'}
+          </span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function LoadingGrid() {
+  return (
+    <div className={styles.productGrid} role="status" aria-label="Loading catalog">
+      {[0, 1, 2, 3, 4, 5, 6, 7].map((item) => (
+        <div key={item} className={styles.productSkeleton} aria-hidden="true" />
+      ))}
+    </div>
+  );
+}
+
 export default function CatalogPage() {
+  const searchParams = useSearchParams();
   const [catalog, setCatalog] = useState<CatalogList | null>(null);
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
-  const [submittedSearch, setSubmittedSearch] = useState('');
-  const [sort, setSort] = useState('newest');
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
+  const [submittedSearch, setSubmittedSearch] = useState(() => searchParams.get('search') ?? '');
+  const [category, setCategory] = useState(() => searchParams.get('category') ?? '');
+  const [availability, setAvailability] = useState<Availability>(
+    () => (searchParams.get('availability') as Availability) ?? '',
+  );
+  const [sort, setSort] = useState(() => searchParams.get('sort') ?? 'newest');
   const [page, setPage] = useState(1);
   const [error, setError] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [draftCategory, setDraftCategory] = useState(category);
+  const [draftAvailability, setDraftAvailability] = useState<Availability>(availability);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  const filterPanelRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const nextSearch = searchParams.get('search') ?? '';
+    const nextCategory = searchParams.get('category') ?? '';
+    const nextAvailability = (searchParams.get('availability') as Availability) ?? '';
+    const nextSort = searchParams.get('sort') ?? 'newest';
+    setSearch(nextSearch);
+    setSubmittedSearch(nextSearch);
+    setCategory(nextCategory);
+    setDraftCategory(nextCategory);
+    setAvailability(nextAvailability);
+    setDraftAvailability(nextAvailability);
+    setSort(nextSort);
+    setPage(1);
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
     setCatalog(null);
     setError(false);
-    void loadCatalog(submittedSearch, category, sort, page)
+    void loadCatalog(submittedSearch, category, availability, sort, page)
       .then((result) => {
         if (!cancelled) setCatalog(result);
       })
@@ -43,148 +117,270 @@ export default function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [submittedSearch, category, sort, page]);
+  }, [submittedSearch, category, availability, sort, page]);
+
+  useEffect(() => {
+    if (!filtersOpen) return undefined;
+    const panel = filterPanelRef.current;
+    const focusable = panel
+      ? Array.from(
+          panel.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+          ),
+        )
+      : [];
+    (focusable[0] ?? panel)?.focus();
+
+    const handleDialogKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setFiltersOpen(false);
+        window.requestAnimationFrame(() => filterButtonRef.current?.focus());
+        return;
+      }
+      if (event.key !== 'Tab' || focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', handleDialogKey);
+    return () => window.removeEventListener('keydown', handleDialogKey);
+  }, [filtersOpen]);
+
+  function closeFilters() {
+    setFiltersOpen(false);
+    window.requestAnimationFrame(() => filterButtonRef.current?.focus());
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmittedSearch(search);
     setPage(1);
   }
+  function applyFilters() {
+    setCategory(draftCategory);
+    setAvailability(draftAvailability);
+    setPage(1);
+    closeFilters();
+  }
+  function clearFilters() {
+    setSearch('');
+    setSubmittedSearch('');
+    setCategory('');
+    setAvailability('');
+    setDraftCategory('');
+    setDraftAvailability('');
+    setPage(1);
+  }
+  const activeFilterCount = Number(Boolean(category)) + Number(Boolean(availability));
 
   return (
-    <main className="catalog-shell">
-      <nav className="catalog-nav" aria-label="Primary navigation">
-        <Link href="/" className="wordmark">
-          PULSE//FIELD
-        </Link>
-        <span className="detail-actions">
-          <span className="market-note">United States · USD</span>
-          <Link href="/cart" className="text-link">
-            Cart
-          </Link>
-        </span>
-      </nav>
-      <header className="catalog-header">
-        <p className="eyebrow">Performance system / storefront discovery</p>
-        <h1>Move with intent.</h1>
-        <p className="lede">
-          Original, local-first gear for road, trail, and training. Every price and availability
-          signal comes from the server-owned US catalog.
-        </p>
-      </header>
-      <form className="catalog-filters" onSubmit={submit} aria-label="Catalog filters">
-        <label>
-          <span>Search products</span>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Try trail or tee"
-            maxLength={80}
-          />
-        </label>
-        <label>
-          <span>Category</span>
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="">All categories</option>
-            <option value="running">Running</option>
-            <option value="trail">Trail</option>
-            <option value="training">Training</option>
-          </select>
-        </label>
-        <label>
-          <span>Sort products</span>
-          <select
-            value={sort}
-            onChange={(event) => {
-              setSort(event.target.value);
-              setPage(1);
+    <StorefrontShell>
+      <main className={styles.catalog}>
+        <header className={styles.header}>
+          <nav className={styles.breadcrumbs} aria-label="Breadcrumb">
+            <Link href="/">Home</Link>
+            <span aria-hidden="true">/</span>
+            <span>Shop</span>
+          </nav>
+          <p className={styles.eyebrow}>Performance system</p>
+          <h1>Move with intent.</h1>
+          <p className={styles.intro}>
+            Technical essentials for road, trail, and training—priced and stocked by the live US
+            catalog.
+          </p>
+        </header>
+        <section className={styles.controls} aria-label="Catalog controls">
+          <form className={styles.searchForm} onSubmit={submit}>
+            <label htmlFor="catalog-search" className={styles.srOnly}>
+              Search products
+            </label>
+            <span aria-hidden="true">⌕</span>
+            <input
+              id="catalog-search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search products"
+              maxLength={80}
+            />
+            <button type="submit">Search</button>
+          </form>
+          <button
+            type="button"
+            className={styles.filterButton}
+            ref={filterButtonRef}
+            onClick={() => {
+              setDraftCategory(category);
+              setDraftAvailability(availability);
+              setFiltersOpen(true);
             }}
+            aria-haspopup="dialog"
+            aria-expanded={filtersOpen}
           >
-            <option value="newest">Newest</option>
-            <option value="name">Name</option>
-            <option value="price-asc">Price: low to high</option>
-            <option value="price-desc">Price: high to low</option>
-          </select>
-        </label>
-        <button type="submit">Search</button>
-      </form>
-      {catalog === null && !error ? (
-        <p className="state" role="status" aria-live="polite">
-          Loading catalog…
-        </p>
-      ) : null}
-      {error ? (
-        <section className="state state-error" role="alert">
-          <h2>Catalog unavailable</h2>
-          <p>Start the local API and try again.</p>
+            Filters{activeFilterCount > 0 ? <span>{activeFilterCount}</span> : null}
+          </button>
+          <label className={styles.sortControl}>
+            <span>Sort</span>
+            <select
+              aria-label="Sort products"
+              value={sort}
+              onChange={(event) => {
+                setSort(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="newest">Newest</option>
+              <option value="name">Name</option>
+              <option value="price-asc">Price: low to high</option>
+              <option value="price-desc">Price: high to low</option>
+            </select>
+          </label>
         </section>
-      ) : null}
-      {catalog && catalog.items.length === 0 ? (
-        <section className="state">
-          <h2>No matching products</h2>
-          <p>Try a broader search or another category.</p>
-        </section>
-      ) : null}
-      {catalog && catalog.items.length > 0 ? (
-        <>
-          <section className="product-grid" aria-label="Products">
-            {catalog.items.map((product) => (
-              <article className="product-card" key={product.id}>
-                <Link
-                  href={`/catalog/${product.slug}`}
-                  className="product-image-link"
-                  aria-label={`View ${product.name}`}
-                >
-                  {product.media[0] ? (
-                    <img
-                      src={product.media[0].url}
-                      alt={product.media[0].altText}
-                      width={product.media[0].width}
-                      height={product.media[0].height}
-                    />
-                  ) : (
-                    <span className="image-placeholder">PULSE//FIELD</span>
-                  )}
-                </Link>
-                <div className="product-card-body">
-                  <p className="product-category">{product.categories[0]?.name ?? 'Performance'}</p>
-                  <h2>
-                    <Link href={`/catalog/${product.slug}`}>{product.name}</Link>
-                  </h2>
-                  <p className="product-price">
-                    From{' '}
-                    {formatUsd(Math.min(...product.variants.map((variant) => variant.priceMinor)))}
-                  </p>
-                  <p className={product.inStock ? 'availability' : 'availability unavailable'}>
-                    {product.inStock ? `${product.available} available` : 'Currently unavailable'}
-                  </p>
-                </div>
-              </article>
-            ))}
+        {submittedSearch || category || availability ? (
+          <div className={styles.activeFilters} aria-label="Active filters">
+            {submittedSearch ? <span>Search: {submittedSearch}</span> : null}
+            {category ? <span>{category}</span> : null}
+            {availability ? (
+              <span>{availability === 'in-stock' ? 'In stock' : 'Out of stock'}</span>
+            ) : null}
+            <button type="button" onClick={clearFilters}>
+              Clear all
+            </button>
+          </div>
+        ) : null}
+        <div className={styles.resultsSummary} aria-live="polite">
+          {catalog
+            ? `${catalog.totalItems} ${catalog.totalItems === 1 ? 'product' : 'products'}`
+            : 'Catalog'}
+        </div>
+        {catalog === null && !error ? <LoadingGrid /> : null}
+        {error ? (
+          <section className={styles.state} role="alert">
+            <p className={styles.eyebrow}>Catalog status</p>
+            <h2>Catalog unavailable</h2>
+            <p>Start the local API, then refresh this page to browse current products.</p>
           </section>
-          {catalog.totalPages > 1 ? (
-            <nav className="catalog-pagination" aria-label="Catalog pagination">
-              <button
-                type="button"
-                onClick={() => setPage((current) => current - 1)}
-                disabled={catalog.page <= 1}
-              >
-                Previous
+        ) : null}
+        {catalog && catalog.items.length === 0 ? (
+          <section className={styles.state}>
+            <p className={styles.eyebrow}>No matches</p>
+            <h2>Nothing matches this selection.</h2>
+            <p>Try a broader search or clear the active filters.</p>
+            <button type="button" className={styles.secondaryButton} onClick={clearFilters}>
+              Clear filters
+            </button>
+          </section>
+        ) : null}
+        {catalog && catalog.items.length > 0 ? (
+          <>
+            <section className={styles.productGrid} aria-label="Products">
+              {catalog.items.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </section>
+            {catalog.totalPages > 1 ? (
+              <nav className={styles.pagination} aria-label="Catalog pagination">
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => current - 1)}
+                  disabled={catalog.page <= 1}
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {catalog.page} of {catalog.totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => current + 1)}
+                  disabled={catalog.page >= catalog.totalPages}
+                >
+                  Next
+                </button>
+              </nav>
+            ) : null}
+          </>
+        ) : null}
+      </main>
+      {filtersOpen ? (
+        <div className={styles.filterLayer}>
+          <button
+            type="button"
+            className={styles.filterBackdrop}
+            onClick={closeFilters}
+            aria-label="Close filters"
+          />
+          <aside
+            className={styles.filterPanel}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="filter-heading"
+            ref={filterPanelRef}
+            tabIndex={-1}
+          >
+            <div className={styles.filterPanelHeader}>
+              <div>
+                <p className={styles.eyebrow}>Catalog controls</p>
+                <h2 id="filter-heading">Filters</h2>
+              </div>
+              <button type="button" onClick={closeFilters} aria-label="Close filters">
+                ×
               </button>
-              <span aria-live="polite">
-                Page {catalog.page} of {catalog.totalPages}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPage((current) => current + 1)}
-                disabled={catalog.page >= catalog.totalPages}
-              >
-                Next
+            </div>
+            <fieldset className={styles.filterGroup}>
+              <legend>Category</legend>
+              {[
+                ['all', 'All categories'],
+                ['running', 'Running'],
+                ['trail', 'Trail'],
+                ['training', 'Training'],
+              ].map(([value, label]) => (
+                <label key={value}>
+                  <input
+                    type="radio"
+                    name="category"
+                    checked={draftCategory === (value === 'all' ? '' : value)}
+                    onChange={() => setDraftCategory(value === 'all' ? '' : value)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+            <fieldset className={styles.filterGroup}>
+              <legend>Availability</legend>
+              {[
+                ['', 'All availability'],
+                ['in-stock', 'In stock'],
+                ['out-of-stock', 'Out of stock'],
+              ].map(([value, label]) => (
+                <label key={value || 'all'}>
+                  <input
+                    type="radio"
+                    name="availability"
+                    checked={draftAvailability === value}
+                    onChange={() => setDraftAvailability(value as Availability)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+            <div className={styles.filterActions}>
+              <button type="button" className={styles.secondaryButton} onClick={clearFilters}>
+                Clear all
               </button>
-            </nav>
-          ) : null}
-        </>
+              <button type="button" className={styles.primaryButton} onClick={applyFilters}>
+                Apply filters
+              </button>
+            </div>
+          </aside>
+        </div>
       ) : null}
-    </main>
+    </StorefrontShell>
   );
 }

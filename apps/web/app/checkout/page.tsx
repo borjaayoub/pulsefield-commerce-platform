@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { API_ORIGIN } from '../catalog/catalog-types';
+import { StorefrontShell } from '../../components/storefront-shell';
 import { cartUrl, formatUsd, type Cart } from '../cart/cart-types';
 import {
   checkoutRequestBody,
@@ -13,6 +14,7 @@ import {
   type ShippingAddress,
   type StubPaymentChoice,
 } from './checkout-payment';
+import styles from './page.module.css';
 
 const StripePaymentStep = dynamic(() => import('./stripe-payment-step'), {
   ssr: false,
@@ -224,124 +226,127 @@ export default function CheckoutPage() {
       </main>
     );
   return (
-    <main className="catalog-shell">
-      <nav className="catalog-nav" aria-label="Primary navigation">
-        <Link href="/" className="wordmark">
-          PULSE//FIELD
-        </Link>
-        <Link href="/cart" className="text-link">
-          Back to cart
-        </Link>
-      </nav>
-      <header className="catalog-header">
-        <p className="eyebrow">Guest checkout / United States · USD</p>
-        <h1>Checkout.</h1>
-        <p className="detail-note">
-          {preview?.paymentProvider === 'stripe'
-            ? 'Stripe test-mode card payment. Simulated tax is not tax advice.'
-            : 'Demo-only payment choices. Simulated tax is not tax advice.'}
-        </p>
-      </header>
-      {message ? (
-        <p className="cart-message state-error" role="alert">
-          {message}
-        </p>
-      ) : null}
-      <div className="cart-layout">
-        <form className="cart-summary" onSubmit={(event) => void requestPreview(event)}>
-          <h2>US shipping address</h2>
-          <label className="quantity-control">
-            Email for order confirmation
-            <input
-              required
-              type="email"
-              autoComplete="email"
-              maxLength={255}
-              value={customerEmail}
-              onChange={(event) => {
-                setCustomerEmail(event.target.value);
-                setIdempotencyKey(newIdempotencyKey());
-              }}
-            />
-          </label>
-          {(['fullName', 'line1', 'line2', 'city', 'state', 'postalCode'] as const).map((field) => (
-            <label className="quantity-control" key={field}>
-              {field === 'line1'
-                ? 'Address'
-                : field === 'line2'
-                  ? 'Address line 2 (optional)'
-                  : field === 'fullName'
-                    ? 'Full name'
-                    : field[0].toUpperCase() + field.slice(1)}
+    <StorefrontShell>
+      <main className={styles.page}>
+        <header className={styles.header}>
+          <Link href="/cart" className={styles.backLink}>
+            ← Back to cart
+          </Link>
+          <p className="eyebrow">Guest checkout / United States · USD</p>
+          <h1>Checkout</h1>
+          <p className="detail-note">
+            {preview?.paymentProvider === 'stripe'
+              ? 'Stripe test-mode card payment. Simulated tax is not tax advice.'
+              : 'Demo-only payment choices. Simulated tax is not tax advice.'}
+          </p>
+        </header>
+        {message ? (
+          <p className="cart-message state-error" role="alert">
+            {message}
+          </p>
+        ) : null}
+        <div className="cart-layout">
+          <form className="cart-summary" onSubmit={(event) => void requestPreview(event)}>
+            <h2>US shipping address</h2>
+            <label className="quantity-control">
+              Email for order confirmation
               <input
-                required={field !== 'line2'}
-                maxLength={field === 'state' ? 2 : 160}
-                value={address[field]}
-                onChange={(event) => update(field, event.target.value)}
+                required
+                type="email"
+                autoComplete="email"
+                maxLength={255}
+                value={customerEmail}
+                onChange={(event) => {
+                  setCustomerEmail(event.target.value);
+                  setIdempotencyKey(newIdempotencyKey());
+                }}
               />
             </label>
-          ))}
-          <button type="submit">Preview authoritative total</button>
-        </form>
-        <aside className="cart-summary">
-          <p className="eyebrow">Authoritative total</p>
-          {preview ? (
-            <>
-              <p>Merchandise: {formatUsd(preview.subtotalMinor)}</p>
-              <p>Shipping: {formatUsd(preview.shippingMinor)}</p>
-              <p>Simulated tax: {formatUsd(preview.taxMinor)}</p>
-              <h2>{formatUsd(preview.totalMinor)}</h2>
-              <p className="detail-note">{preview.taxNotice}</p>
-              {preview.paymentProvider === 'stub' ? (
-                <fieldset>
-                  <legend>Demo payment result</legend>
-                  <label>
-                    <input
-                      type="radio"
-                      checked={choice === 'stub-success'}
-                      onChange={() => {
-                        setChoice('stub-success');
-                        setIdempotencyKey(newIdempotencyKey());
-                      }}
-                    />{' '}
-                    Success
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      checked={choice === 'stub-decline'}
-                      onChange={() => {
-                        setChoice('stub-decline');
-                        setIdempotencyKey(newIdempotencyKey());
-                      }}
-                    />{' '}
-                    Decline
-                  </label>
-                </fieldset>
-              ) : (
-                <p className="payment-provider-note">
-                  Secure card fields open after the server reserves inventory and prepares the test
-                  PaymentIntent.
-                </p>
-              )}
-              <button type="button" disabled={state === 'submitting'} onClick={() => void submit()}>
-                {state === 'submitting'
-                  ? 'Preparing…'
-                  : preview.paymentProvider === 'stripe'
-                    ? 'Continue to secure payment'
-                    : 'Place demo order'}
-              </button>
-            </>
-          ) : (
-            <p>Enter a US address to calculate server-owned totals.</p>
-          )}{' '}
-          {cart?.hasUnavailableItems ? (
-            <p className="availability unavailable">
-              Return to the cart and resolve unavailable items.
-            </p>
-          ) : null}
-        </aside>
-      </div>
-    </main>
+            {(['fullName', 'line1', 'line2', 'city', 'state', 'postalCode'] as const).map(
+              (field) => (
+                <label className="quantity-control" key={field}>
+                  {field === 'line1'
+                    ? 'Address'
+                    : field === 'line2'
+                      ? 'Address line 2 (optional)'
+                      : field === 'fullName'
+                        ? 'Full name'
+                        : field[0].toUpperCase() + field.slice(1)}
+                  <input
+                    required={field !== 'line2'}
+                    maxLength={field === 'state' ? 2 : 160}
+                    value={address[field]}
+                    onChange={(event) => update(field, event.target.value)}
+                  />
+                </label>
+              ),
+            )}
+            <button type="submit">Preview authoritative total</button>
+          </form>
+          <aside className="cart-summary">
+            <p className="eyebrow">Authoritative total</p>
+            {preview ? (
+              <>
+                <p>Merchandise: {formatUsd(preview.subtotalMinor)}</p>
+                <p>Shipping: {formatUsd(preview.shippingMinor)}</p>
+                <p>Simulated tax: {formatUsd(preview.taxMinor)}</p>
+                <h2>{formatUsd(preview.totalMinor)}</h2>
+                <p className="detail-note">{preview.taxNotice}</p>
+                {preview.paymentProvider === 'stub' ? (
+                  <fieldset>
+                    <legend>Demo payment result</legend>
+                    <label>
+                      <input
+                        type="radio"
+                        checked={choice === 'stub-success'}
+                        onChange={() => {
+                          setChoice('stub-success');
+                          setIdempotencyKey(newIdempotencyKey());
+                        }}
+                      />{' '}
+                      Success
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        checked={choice === 'stub-decline'}
+                        onChange={() => {
+                          setChoice('stub-decline');
+                          setIdempotencyKey(newIdempotencyKey());
+                        }}
+                      />{' '}
+                      Decline
+                    </label>
+                  </fieldset>
+                ) : (
+                  <p className="payment-provider-note">
+                    Secure card fields open after the server reserves inventory and prepares the
+                    test PaymentIntent.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  disabled={state === 'submitting'}
+                  onClick={() => void submit()}
+                >
+                  {state === 'submitting'
+                    ? 'Preparing…'
+                    : preview.paymentProvider === 'stripe'
+                      ? 'Continue to secure payment'
+                      : 'Place demo order'}
+                </button>
+              </>
+            ) : (
+              <p>Enter a US address to calculate server-owned totals.</p>
+            )}{' '}
+            {cart?.hasUnavailableItems ? (
+              <p className="availability unavailable">
+                Return to the cart and resolve unavailable items.
+              </p>
+            ) : null}
+          </aside>
+        </div>
+      </main>
+    </StorefrontShell>
   );
 }

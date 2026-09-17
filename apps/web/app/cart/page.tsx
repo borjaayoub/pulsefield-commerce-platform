@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { StorefrontShell } from '../../components/storefront-shell';
 import {
   Cart,
   canAdjustCartQuantity,
@@ -10,6 +11,7 @@ import {
   clampCartQuantity,
   formatUsd,
 } from './cart-types';
+import styles from './page.module.css';
 
 export default function CartPage() {
   const [cart, setCart] = useState<Cart | null>(null);
@@ -137,139 +139,154 @@ export default function CartPage() {
 
   if (state === 'loading')
     return (
-      <main className="catalog-shell">
-        <p className="state" role="status">
-          Loading cart…
-        </p>
-      </main>
+      <StorefrontShell>
+        <main className={styles.page}>
+          <p className="state" role="status">
+            Loading cart…
+          </p>
+        </main>
+      </StorefrontShell>
     );
   if (state === 'error')
     return (
-      <main className="catalog-shell">
-        <section className="state state-error" role="alert">
-          <h1>Cart unavailable</h1>
-          <p>Start the local API and try again.</p>
-          <button type="button" onClick={() => void load()}>
-            Try again
-          </button>
-        </section>
-      </main>
+      <StorefrontShell>
+        <main className={styles.page}>
+          <section className="state state-error" role="alert">
+            <h1>Cart unavailable</h1>
+            <p>Start the local API and try again.</p>
+            <button type="button" onClick={() => void load()}>
+              Try again
+            </button>
+          </section>
+        </main>
+      </StorefrontShell>
     );
 
   return (
-    <main className="catalog-shell">
-      <nav className="catalog-nav" aria-label="Primary navigation">
-        <Link href="/" className="wordmark">
-          PULSE//FIELD
-        </Link>
-        <Link href="/catalog" className="text-link">
-          Continue shopping
-        </Link>
-      </nav>
-      <header className="catalog-header cart-header">
-        <p className="eyebrow">Your selection / United States · USD</p>
-        <h1>Cart.</h1>
-      </header>
-      {message ? (
-        <p id="cart-status" className="state-error cart-message" role="status" aria-live="polite">
-          {message}
-        </p>
-      ) : null}
-      {!cart || cart.items.length === 0 ? (
-        <section className="state">
-          <h2>Your cart is clear.</h2>
-          <p>Choose a piece from the local catalog to begin.</p>
-          <Link href="/catalog" className="text-link">
-            Browse catalog →
+    <StorefrontShell>
+      <main className={styles.page}>
+        <header className={styles.header}>
+          <Link href="/catalog" className={styles.backLink}>
+            ← Continue shopping
           </Link>
-        </section>
-      ) : (
-        <section className="cart-layout" aria-label="Shopping cart">
-          <div className="cart-items">
-            {cart.items.map((item) => (
-              <article className="cart-item" key={item.id}>
-                <div>
-                  <p className="product-category">{Object.values(item.optionValues).join(' / ')}</p>
-                  <h2>{item.productName}</h2>
-                  <p>
-                    {item.name} · {item.available} currently available
-                  </p>
-                  <div className="cart-quantity-control">
-                    <label className="quantity-control" htmlFor={`quantity-${item.variantId}`}>
-                      <span>Quantity</span>
-                    </label>
-                    <div className="quantity-actions">
-                      <input
-                        id={`quantity-${item.variantId}`}
-                        type="number"
-                        min={1}
-                        max={Math.max(1, cartQuantityLimit(item.available))}
-                        value={quantityDrafts[item.variantId] ?? String(item.quantity)}
-                        aria-describedby={message ? 'cart-status' : undefined}
-                        disabled={!canAdjustCartQuantity(item) || pendingVariantId !== null}
-                        onChange={(event) =>
-                          setQuantityDrafts((current) => ({
-                            ...current,
-                            [item.variantId]: event.target.value,
-                          }))
-                        }
-                      />
-                      <button
-                        type="button"
-                        disabled={!canAdjustCartQuantity(item) || pendingVariantId !== null}
-                        onClick={() => void updateQuantity(item.variantId)}
-                      >
-                        {pendingVariantId === item.variantId ? 'Updating…' : 'Update'}
-                      </button>
-                    </div>
-                    {!item.purchasable && canAdjustCartQuantity(item) ? (
-                      <span className="availability unavailable">
-                        Reduce to {item.available} or less to continue.
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="cart-item-price">
-                  {item.currentLinePriceMinor === null ? (
-                    <span className="availability unavailable">Unavailable</span>
-                  ) : (
-                    formatUsd(item.currentLinePriceMinor)
-                  )}
-                  <button
-                    type="button"
-                    disabled={pendingVariantId !== null}
-                    onClick={() => void remove(item.variantId)}
-                  >
-                    {pendingVariantId === item.variantId ? 'Updating…' : 'Remove'}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-          <aside className="cart-summary">
-            <p className="eyebrow">Server total</p>
-            <h2>{cart.totalMinor === null ? '—' : formatUsd(cart.totalMinor)}</h2>
-            {cart.hasUnavailableItems ? (
-              <p className="availability unavailable">
-                Remove unavailable items before checkout becomes available.
-              </p>
-            ) : null}
-            <Link
-              href="/checkout"
-              className="text-link"
-              aria-disabled={cart.hasUnavailableItems}
-              onClick={(event) => {
-                if (cart.hasUnavailableItems) event.preventDefault();
-              }}
-            >
-              Continue to checkout →
-            </Link>
-            <p className="detail-note">
-              Taxes are simulated for this local demo and are not tax advice.
+          <p className={styles.eyebrow}>Your selection / United States · USD</p>
+          <h1>Your cart</h1>
+          {cart?.items.length ? (
+            <p>
+              {cart.items.length} {cart.items.length === 1 ? 'item' : 'items'} ready to review.
             </p>
-          </aside>
-        </section>
-      )}
-    </main>
+          ) : null}
+        </header>
+        {message ? (
+          <p id="cart-status" className="state-error cart-message" role="status" aria-live="polite">
+            {message}
+          </p>
+        ) : null}
+        {!cart || cart.items.length === 0 ? (
+          <section className="state">
+            <h2>Your cart is clear.</h2>
+            <p>Choose a piece from the local catalog to begin.</p>
+            <Link href="/catalog" className="text-link">
+              Browse catalog →
+            </Link>
+          </section>
+        ) : (
+          <section className="cart-layout" aria-label="Shopping cart">
+            <div className="cart-items">
+              {cart.items.map((item) => (
+                <article className="cart-item" key={item.id}>
+                  <div className={styles.itemMedia}>
+                    {item.media ? (
+                      <img src={item.media.url} alt={item.media.altText} />
+                    ) : (
+                      <span aria-hidden="true">PULSE//FIELD</span>
+                    )}
+                  </div>
+                  <div>
+                    <p className="product-category">
+                      {Object.values(item.optionValues).join(' / ')}
+                    </p>
+                    <h2>{item.productName}</h2>
+                    <p>
+                      {item.name} · {item.available} currently available
+                    </p>
+                    <div className="cart-quantity-control">
+                      <label className="quantity-control" htmlFor={`quantity-${item.variantId}`}>
+                        <span>Quantity</span>
+                      </label>
+                      <div className="quantity-actions">
+                        <input
+                          id={`quantity-${item.variantId}`}
+                          type="number"
+                          min={1}
+                          max={Math.max(1, cartQuantityLimit(item.available))}
+                          value={quantityDrafts[item.variantId] ?? String(item.quantity)}
+                          aria-describedby={message ? 'cart-status' : undefined}
+                          disabled={!canAdjustCartQuantity(item) || pendingVariantId !== null}
+                          onChange={(event) =>
+                            setQuantityDrafts((current) => ({
+                              ...current,
+                              [item.variantId]: event.target.value,
+                            }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          disabled={!canAdjustCartQuantity(item) || pendingVariantId !== null}
+                          onClick={() => void updateQuantity(item.variantId)}
+                        >
+                          {pendingVariantId === item.variantId ? 'Updating…' : 'Update'}
+                        </button>
+                      </div>
+                      {!item.purchasable && canAdjustCartQuantity(item) ? (
+                        <span className="availability unavailable">
+                          Reduce to {item.available} or less to continue.
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="cart-item-price">
+                    {item.currentLinePriceMinor === null ? (
+                      <span className="availability unavailable">Unavailable</span>
+                    ) : (
+                      formatUsd(item.currentLinePriceMinor)
+                    )}
+                    <button
+                      type="button"
+                      disabled={pendingVariantId !== null}
+                      onClick={() => void remove(item.variantId)}
+                    >
+                      {pendingVariantId === item.variantId ? 'Updating…' : 'Remove'}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <aside className="cart-summary">
+              <p className="eyebrow">Server total</p>
+              <h2>{cart.totalMinor === null ? '—' : formatUsd(cart.totalMinor)}</h2>
+              {cart.hasUnavailableItems ? (
+                <p className="availability unavailable">
+                  Remove unavailable items before checkout becomes available.
+                </p>
+              ) : null}
+              <Link
+                href="/checkout"
+                className="text-link"
+                aria-disabled={cart.hasUnavailableItems}
+                onClick={(event) => {
+                  if (cart.hasUnavailableItems) event.preventDefault();
+                }}
+              >
+                Continue to checkout →
+              </Link>
+              <p className="detail-note">
+                Taxes are simulated for this local demo and are not tax advice.
+              </p>
+            </aside>
+          </section>
+        )}
+      </main>
+    </StorefrontShell>
   );
 }

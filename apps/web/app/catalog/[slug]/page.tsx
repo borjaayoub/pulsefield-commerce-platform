@@ -2,40 +2,55 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { API_ORIGIN, CATALOG_SLUG_PATTERN, CatalogProduct, formatUsd } from '../catalog-types';
+import { useEffect, useMemo, useState } from 'react';
+import { StorefrontShell } from '../../../components/storefront-shell';
+import {
+  API_ORIGIN,
+  CATALOG_SLUG_PATTERN,
+  CatalogProduct,
+  CatalogVariant,
+  formatUsd,
+} from '../catalog-types';
+import styles from './page.module.css';
+
+function variantLabel(variant: CatalogVariant): string {
+  return Object.values(variant.optionValues).join(' / ');
+}
 
 export default function ProductPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
   const [cartMessage, setCartMessage] = useState<string | null>(null);
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [pendingVariantId, setPendingVariantId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setState('loading');
+    setProduct(null);
+    setSelectedVariantId(null);
     void fetch(`${API_ORIGIN}/api/v1/catalog/products/${encodeURIComponent(slug)}`, {
       headers: { Accept: 'application/json' },
     })
       .then((response) => {
         if (!response.ok) throw new Error('PRODUCT_UNAVAILABLE');
-        return response.json().then((result) => ({
-          product: result as CatalogProduct,
-          finalUrl: response.url,
-        }));
+        return response
+          .json()
+          .then((result) => ({ product: result as CatalogProduct, finalUrl: response.url }));
       })
       .then(({ product: result, finalUrl }) => {
-        if (!cancelled) {
-          setProduct(result);
-          const canonicalSlug = canonicalSlugFromRedirect(finalUrl);
-          if (canonicalSlug && canonicalSlug !== slug) {
-            window.history.replaceState(null, '', `/catalog/${canonicalSlug}`);
-          }
-          setState('ready');
-        }
+        if (cancelled) return;
+        setProduct(result);
+        setSelectedVariantId(
+          result.variants.find((variant) => variant.inStock)?.id ?? result.variants[0]?.id ?? null,
+        );
+        const canonicalSlug = canonicalSlugFromRedirect(finalUrl);
+        if (canonicalSlug && canonicalSlug !== slug)
+          window.history.replaceState(null, '', `/catalog/${canonicalSlug}`);
+        setState('ready');
       })
       .catch(() => {
         if (!cancelled) setState('error');
@@ -45,9 +60,14 @@ export default function ProductPage() {
     };
   }, [slug]);
 
-  async function addToCart(variantId: string, quantity: number): Promise<void> {
-    if (pendingVariantId) return;
-    setPendingVariantId(variantId);
+  const selectedVariant = useMemo(
+    () => product?.variants.find((variant) => variant.id === selectedVariantId) ?? null,
+    [product, selectedVariantId],
+  );
+
+  async function addToCart(): Promise<void> {
+    if (!selectedVariant || pendingVariantId) return;
+    setPendingVariantId(selectedVariant.id);
     setCartMessage(null);
     try {
       let cartResponse = await fetch(`${API_ORIGIN}/api/v1/cart`, {
@@ -57,7 +77,7 @@ export default function ProductPage() {
       if (!cartResponse.ok) throw new Error('CART_UNAVAILABLE');
       let etag = cartResponse.headers.get('etag');
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const response = await fetch(`${API_ORIGIN}/api/v1/cart/items/${variantId}`, {
+        const response = await fetch(`${API_ORIGIN}/api/v1/cart/items/${selectedVariant.id}`, {
           method: 'PUT',
           credentials: 'include',
           headers: {
@@ -80,16 +100,14 @@ export default function ProductPage() {
           etag = cartResponse.headers.get('etag');
           continue;
         }
-        const problem = (await response.json().catch(() => ({}))) as {
-          availableQuantity?: number;
-        };
-        if (response.status === 409 && problem.availableQuantity !== undefined) {
-          setCartMessage(`Only ${problem.availableQuantity} units are currently available.`);
-        } else if (response.status === 409 || response.status === 428) {
-          setCartMessage('The cart changed in another tab. Refresh the page and try again.');
-        } else {
-          setCartMessage('Unable to update the cart. Try again.');
-        }
+        const problem = (await response.json().catch(() => ({}))) as { availableQuantity?: number };
+        setCartMessage(
+          response.status === 409 && problem.availableQuantity !== undefined
+            ? `Only ${problem.availableQuantity} units are currently available.`
+            : response.status === 409 || response.status === 428
+              ? 'The cart changed in another tab. Refresh the page and try again.'
+              : 'Unable to update the cart. Try again.',
+        );
         return;
       }
     } catch {
@@ -101,113 +119,140 @@ export default function ProductPage() {
 
   if (state === 'loading')
     return (
-      <main className="catalog-shell">
-        <p className="state" role="status" aria-live="polite">
-          Loading product…
-        </p>
-      </main>
+      <StorefrontShell>
+        <main className={styles.page}>
+          <div className={styles.loading} role="status" aria-live="polite">
+            Loading product…
+          </div>
+        </main>
+      </StorefrontShell>
     );
   if (state === 'error' || !product)
     return (
-      <main className="catalog-shell">
-        <section className="state state-error" role="alert">
-          <h1>Product unavailable</h1>
-          <p>This product may have been archived or the local API is unavailable.</p>
-          <Link href="/catalog" className="text-link">
-            Back to catalog
-          </Link>
-        </section>
-      </main>
+      <StorefrontShell>
+        <main className={styles.page}>
+          <section className={styles.state} role="alert">
+            <p className={styles.eyebrow}>Product status</p>
+            <h1>Product unavailable</h1>
+            <p>This product may have been archived or the local API is unavailable.</p>
+            <Link href="/catalog">Back to catalog</Link>
+          </section>
+        </main>
+      </StorefrontShell>
     );
 
+  const media = product.media[0];
+  const selectedPrice = selectedVariant ? formatUsd(selectedVariant.priceMinor) : null;
   return (
-    <main className="catalog-shell">
-      <nav className="catalog-nav" aria-label="Primary navigation">
-        <Link href="/" className="wordmark">
-          PULSE//FIELD
-        </Link>
-        <span className="detail-actions">
-          <Link href="/catalog" className="text-link">
-            Back to catalog
-          </Link>
-          <Link href="/cart" className="text-link">
-            Cart
-          </Link>
-        </span>
-      </nav>
-      <div className="product-detail">
-        <div className="detail-media">
-          {product.media.map((media) => (
-            <img
-              key={media.url}
-              src={media.url}
-              alt={media.altText}
-              width={media.width}
-              height={media.height}
-            />
-          ))}
-        </div>
-        <div className="detail-copy">
-          <p className="eyebrow">
-            {product.categories.map((category) => category.name).join(' / ')}
-          </p>
-          <h1>{product.name}</h1>
-          <p className="detail-description">{product.description}</p>
-          <p className="detail-availability">
-            {product.inStock
-              ? `${product.available} units available in the US`
-              : 'Currently unavailable in the US'}
-          </p>
-          <div className="variant-list" aria-label="Available variants">
-            {product.variants.map((variant) => (
-              <div className="variant-row" key={variant.id}>
-                <span>{Object.values(variant.optionValues).join(' / ')}</span>
-                <strong>{formatUsd(variant.priceMinor)}</strong>
-                <span className={variant.inStock ? 'availability' : 'availability unavailable'}>
-                  {variant.inStock ? 'Available' : 'Unavailable'}
-                </span>
-                <label className="quantity-control">
-                  <span>Quantity</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={Math.max(1, variant.available)}
-                    value={quantities[variant.id] ?? 1}
-                    disabled={!variant.inStock || pendingVariantId !== null}
-                    onChange={(event) => {
-                      const parsed = Number(event.target.value);
-                      if (Number.isSafeInteger(parsed)) {
-                        setQuantities((current) => ({
-                          ...current,
-                          [variant.id]: Math.min(
-                            Math.max(1, parsed),
-                            Math.max(1, variant.available),
-                          ),
-                        }));
-                      }
-                    }}
-                  />
-                </label>
-                <button
-                  type="button"
-                  disabled={!variant.inStock || pendingVariantId !== null}
-                  aria-busy={pendingVariantId === variant.id}
-                  onClick={() => void addToCart(variant.id, quantities[variant.id] ?? 1)}
-                >
-                  {pendingVariantId === variant.id ? 'Adding…' : 'Add to cart'}
-                </button>
+    <StorefrontShell>
+      <main className={styles.page}>
+        <nav className={styles.breadcrumbs} aria-label="Breadcrumb">
+          <Link href="/">Home</Link>
+          <span>/</span>
+          <Link href="/catalog">Shop</Link>
+          <span>/</span>
+          <span>{product.name}</span>
+        </nav>
+        <div className={styles.layout}>
+          <section className={styles.media} aria-label={`${product.name} imagery`}>
+            {media ? (
+              <img src={media.url} alt={media.altText} />
+            ) : (
+              <div className={styles.mediaPlaceholder} aria-hidden="true">
+                PULSE//FIELD
               </div>
-            ))}
-          </div>
-          {cartMessage ? (
-            <p className="cart-message" role="status">
-              {cartMessage}
+            )}
+          </section>
+          <section className={styles.details} aria-labelledby="product-name">
+            <p className={styles.eyebrow}>
+              {product.categories.map((category) => category.name).join(' / ')}
             </p>
-          ) : null}
-          <p className="detail-note">Checkout is available from your cart.</p>
+            <h1 id="product-name">{product.name}</h1>
+            <p className={styles.price}>{selectedPrice ?? 'Select a variant'}</p>
+            <p className={styles.description}>{product.description}</p>
+            <p className={product.inStock ? styles.stock : styles.outOfStock}>
+              {product.inStock ? 'In stock in the US' : 'Currently unavailable in the US'}
+            </p>
+            <fieldset className={styles.variantPicker}>
+              <legend>Choose a variant</legend>
+              <div>
+                {product.variants.map((variant) => (
+                  <label
+                    key={variant.id}
+                    className={variant.inStock ? styles.variant : styles.variantUnavailable}
+                  >
+                    <input
+                      type="radio"
+                      name="variant"
+                      value={variant.id}
+                      checked={selectedVariantId === variant.id}
+                      disabled={!variant.inStock || pendingVariantId !== null}
+                      onChange={() => {
+                        setSelectedVariantId(variant.id);
+                        setQuantity(1);
+                        setCartMessage(null);
+                      }}
+                    />
+                    <span>{variantLabel(variant)}</span>
+                    <strong>{formatUsd(variant.priceMinor)}</strong>
+                    {!variant.inStock ? <small>Unavailable</small> : null}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className={styles.purchaseRow}>
+              <label className={styles.quantity}>
+                <span>Quantity</span>
+                <input
+                  aria-label="Quantity"
+                  type="number"
+                  min={1}
+                  max={Math.max(1, selectedVariant?.available ?? 1)}
+                  value={quantity}
+                  disabled={!selectedVariant?.inStock || pendingVariantId !== null}
+                  onChange={(event) => {
+                    const parsed = Number(event.target.value);
+                    if (Number.isSafeInteger(parsed))
+                      setQuantity(
+                        Math.min(Math.max(1, parsed), Math.max(1, selectedVariant?.available ?? 1)),
+                      );
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className={styles.addButton}
+                disabled={!selectedVariant?.inStock || pendingVariantId !== null}
+                aria-busy={pendingVariantId === selectedVariant?.id}
+                onClick={() => void addToCart()}
+              >
+                {pendingVariantId === selectedVariant?.id ? 'Adding…' : 'Add to cart'}{' '}
+                <span aria-hidden="true">→</span>
+              </button>
+            </div>
+            {cartMessage ? (
+              <p className={styles.cartMessage} role="status">
+                {cartMessage}
+              </p>
+            ) : null}
+            <div className={styles.assurances}>
+              <p>
+                <strong>Secure checkout</strong>
+                <span>Server-owned price and availability at checkout.</span>
+              </p>
+              <p>
+                <strong>US catalog</strong>
+                <span>Availability is shown from the active warehouse.</span>
+              </p>
+              <p>
+                <strong>Cart first</strong>
+                <span>Review your order before checkout.</span>
+              </p>
+            </div>
+          </section>
         </div>
-      </div>
-    </main>
+      </main>
+    </StorefrontShell>
   );
 }
 

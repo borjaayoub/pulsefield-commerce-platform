@@ -14,6 +14,7 @@ export interface CartItem {
   currency: 'USD';
   available: number;
   purchasable: boolean;
+  media: { url: string; altText: string; width: number; height: number } | null;
 }
 
 export interface Cart {

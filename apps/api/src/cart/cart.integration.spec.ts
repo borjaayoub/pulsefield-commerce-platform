@@ -35,11 +35,35 @@ describe('persistent anonymous cart database integration', () => {
       revision: 2,
       currency: 'USD',
       subtotalMinor: 9600,
-      items: [{ variantId, quantity: 2, currentUnitPriceMinor: 4800, purchasable: true }],
+      items: [
+        {
+          variantId,
+          quantity: 2,
+          currentUnitPriceMinor: 4800,
+          purchasable: true,
+          media: {
+            url: '/catalog/seed/aero-tempo-tee.svg',
+            altText: expect.any(String),
+            width: expect.any(Number),
+            height: expect.any(Number),
+          },
+        },
+      ],
     });
     const stored = await prisma.cart.findUniqueOrThrow({ where: { id: await findCartId(prisma) } });
     expect(stored.tokenDigest).toMatch(/^[a-f0-9]{64}$/u);
     expect(stored.tokenDigest).not.toContain(empty.token);
+  });
+
+  it('omits active media whose storage key is outside the public catalog allowlist', async () => {
+    await prisma.productMedia.updateMany({
+      where: { productId: '20000000-0000-4000-8000-000000000001' },
+      data: { storageKey: 'private/aero-tempo-tee.png' },
+    });
+    const empty = await carts.getCurrent(undefined);
+    const updated = await carts.setItem(empty.token, variantId, 1, empty.cart.revision);
+
+    expect(updated.cart.items[0]?.media).toBeNull();
   });
 
   it('allows only one writer for the same cart revision', async () => {

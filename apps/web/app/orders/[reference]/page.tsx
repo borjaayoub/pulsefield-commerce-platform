@@ -4,11 +4,13 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { API_ORIGIN, formatUsd } from '../../catalog/catalog-types';
+import { StorefrontShell } from '../../../components/storefront-shell';
 import {
   accessTokenFromFragment,
   guestOrderSessionKey,
   type OrderTimeline,
 } from './order-timeline';
+import styles from './page.module.css';
 
 export default function OrderTimelinePage() {
   const { reference } = useParams<{ reference: string }>();
@@ -71,54 +73,51 @@ export default function OrderTimelinePage() {
     );
 
   return (
-    <main className="catalog-shell order-timeline-shell">
-      <nav className="catalog-nav" aria-label="Primary navigation">
-        <Link href="/" className="wordmark">
-          PULSE//FIELD
-        </Link>
-        <Link href="/catalog" className="text-link">
-          Shop
-        </Link>
-      </nav>
-      <header className="catalog-header">
-        <p className="eyebrow">Order {timeline.orderReference}</p>
-        <h1>Your order.</h1>
-        <p className="detail-note">
-          Live server-verified status · access expires{' '}
-          {new Date(timeline.accessExpiresAt).toLocaleDateString('en-US')}
-        </p>
-      </header>
-      <div className="cart-layout">
-        <section className="cart-summary" aria-labelledby="progress-heading">
-          <h2 id="progress-heading">Progress</h2>
-          <ol className="order-timeline">
-            {timeline.events.map((event, index) => (
-              <li key={`${event.type}-${event.occurredAt}-${index}`}>
-                <strong>{event.label}</strong>
-                <time dateTime={event.occurredAt}>
-                  {new Date(event.occurredAt).toLocaleString('en-US')}
-                </time>
-              </li>
+    <StorefrontShell>
+      <main className={styles.page}>
+        <header className={styles.header}>
+          <Link href="/catalog" className={styles.backLink}>
+            ← Continue shopping
+          </Link>
+          <p className="eyebrow">Order {timeline.orderReference}</p>
+          <h1>Your order</h1>
+          <p className="detail-note">
+            Live server-verified status · access expires{' '}
+            {new Date(timeline.accessExpiresAt).toLocaleDateString('en-US')}
+          </p>
+        </header>
+        <div className="cart-layout">
+          <section className="cart-summary" aria-labelledby="progress-heading">
+            <h2 id="progress-heading">Progress</h2>
+            <ol className="order-timeline">
+              {timeline.events.map((event, index) => (
+                <li key={`${event.type}-${event.occurredAt}-${index}`}>
+                  <strong>{event.label}</strong>
+                  <time dateTime={event.occurredAt}>
+                    {new Date(event.occurredAt).toLocaleString('en-US')}
+                  </time>
+                </li>
+              ))}
+            </ol>
+          </section>
+          <aside className="cart-summary">
+            <p className="eyebrow">Order summary</p>
+            {timeline.lines.map((line, index) => (
+              <div className="order-line" key={`${line.productName}-${line.variantName}-${index}`}>
+                <span>
+                  {line.productName} · {line.variantName} × {line.quantity}
+                </span>
+                <strong>{formatUsd(line.lineTotalMinor)}</strong>
+              </div>
             ))}
-          </ol>
-        </section>
-        <aside className="cart-summary">
-          <p className="eyebrow">Order summary</p>
-          {timeline.lines.map((line, index) => (
-            <div className="order-line" key={`${line.productName}-${line.variantName}-${index}`}>
-              <span>
-                {line.productName} · {line.variantName} × {line.quantity}
-              </span>
-              <strong>{formatUsd(line.lineTotalMinor)}</strong>
-            </div>
-          ))}
-          <hr />
-          <p>Merchandise: {formatUsd(timeline.subtotalMinor)}</p>
-          <p>Shipping: {formatUsd(timeline.shippingMinor)}</p>
-          <p>Simulated tax: {formatUsd(timeline.taxMinor)}</p>
-          <p className="cart-total">Total: {formatUsd(timeline.totalMinor)}</p>
-        </aside>
-      </div>
-    </main>
+            <hr />
+            <p>Merchandise: {formatUsd(timeline.subtotalMinor)}</p>
+            <p>Shipping: {formatUsd(timeline.shippingMinor)}</p>
+            <p>Simulated tax: {formatUsd(timeline.taxMinor)}</p>
+            <p className="cart-total">Total: {formatUsd(timeline.totalMinor)}</p>
+          </aside>
+        </div>
+      </main>
+    </StorefrontShell>
   );
 }

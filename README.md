@@ -8,6 +8,11 @@ Phase 1, **Architecture and delivery foundation**, Phase 2, **Identity and relia
 
 The protected Phase 3 operations dashboard is available at `/operations` after staff password and local TOTP MFA authentication. It uses masked, read-only projections; only fulfillers can advance the existing fulfillment path. Checkout defaults to the non-networked stub and seeded `US-EAST-01` warehouse; no Stripe or hosted payment service is required. Optional Stripe mode is test-only: it mounts the embedded Payment Element after server-owned checkout preparation, and only the verified asynchronous webhook/reconciliation path may confirm payment. Checkout collects an order-contact email, links guests to a digest-protected expiring timeline, and delivers confirmation only through the encrypted local Mailpit workflow after authoritative order confirmation.
 
+The storefront uses a light, responsive presentation across the homepage,
+catalog, product detail, cart, active checkout form, and guest order timeline.
+Navigation, search, filters, variant selection, cart revisions, and server-owned
+checkout behavior remain connected to the existing `/api/v1` contracts.
+
 ## Quick start
 
 Prerequisites: Node `24.19.0`, pnpm `11.19.0`, and Docker Compose. Docker is required only for the persistent and supporting local services; no cloud account is needed.
@@ -37,7 +42,7 @@ Then open:
 - Checkout preview: `POST http://localhost:4000/api/v1/checkouts/preview`
 - Create checkout: `POST http://localhost:4000/api/v1/checkouts`
 - Staff fulfillment transition: `POST http://localhost:4000/api/v1/staff/fulfillment-groups/:id/transitions`
-- Staff operations projections: `GET http://localhost:4000/api/v1/staff/operations/{catalog|inventory|reservations|orders|payments|fulfillment|audit}`
+- Staff operations projections: `GET http://localhost:4000/api/v1/staff/operations/{catalog|inventory|reservations|orders|payments|reconciliation|fulfillment|audit}`
 - OpenAPI UI: `http://localhost:4000/api/docs`
 - Customer registration: `POST http://localhost:4000/api/v1/auth/registrations`
 - Email verification: `POST http://localhost:4000/api/v1/auth/email-verifications`

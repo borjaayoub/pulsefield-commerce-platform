@@ -1,0 +1,103 @@
+.page {
+  width: min(100% - 3rem, 88rem);
+  margin: auto;
+  padding: clamp(2rem, 5vw, 4rem) 0 7rem;
+}
+.header {
+  margin-bottom: 2.5rem;
+}
+.backLink {
+  display: inline-block;
+  margin-bottom: 2rem;
+  color: var(--storefront-ink);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.header :global(.eyebrow) {
+  margin: 0 0 0.65rem;
+  color: var(--storefront-muted);
+  font-size: 0.69rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.header h1 {
+  margin: 0;
+  color: var(--storefront-ink);
+  font-family: var(--storefront-font-body);
+  font-size: clamp(3.2rem, 6vw, 6rem);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+}
+.page :global(.cart-layout) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(19rem, 0.48fr);
+  gap: clamp(2rem, 5vw, 5rem);
+}
+.page :global(.cart-summary) {
+  border: 1px solid var(--storefront-border);
+  background: var(--storefront-surface);
+  padding: 1.5rem;
+}
+.page :global(.cart-summary h2) {
+  margin: 0 0 1.5rem;
+  font-family: var(--storefront-font-body);
+  font-size: 1.7rem;
+  letter-spacing: -0.04em;
+}
+.page :global(.order-timeline) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.page :global(.order-timeline li) {
+  position: relative;
+  margin-left: 0.45rem;
+  padding: 0 0 1.5rem 1.6rem;
+  border-left: 1px solid var(--storefront-border);
+}
+.page :global(.order-timeline li:last-child) {
+  border-left-color: transparent;
+  padding-bottom: 0;
+}
+.page :global(.order-timeline li::before) {
+  position: absolute;
+  left: -0.43rem;
+  top: 0.15rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--storefront-accent);
+  content: '';
+}
+.page :global(.order-timeline strong),
+.page :global(.order-timeline time) {
+  display: block;
+}
+.page :global(.order-timeline time) {
+  margin-top: 0.25rem;
+  color: var(--storefront-muted);
+  font-size: 0.8rem;
+}
+.page :global(.order-line) {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--storefront-border);
+  font-size: 0.88rem;
+}
+.page :global(.cart-total) {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+@media (max-width: 720px) {
+  .page {
+    width: min(100% - 2rem, 88rem);
+    padding-bottom: 4rem;
+  }
+  .page :global(.cart-layout) {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,473 @@
+.catalog {
+  width: min(100% - 3rem, 88rem);
+  margin-inline: auto;
+  padding: clamp(2.25rem, 5vw, 4.25rem) 0 clamp(5rem, 9vw, 8rem);
+}
+.header {
+  max-width: 50rem;
+}
+.breadcrumbs {
+  display: flex;
+  gap: 0.55rem;
+  margin-bottom: 2.5rem;
+  color: var(--storefront-muted);
+  font-size: 0.82rem;
+}
+.breadcrumbs a {
+  color: inherit;
+}
+.eyebrow {
+  margin: 0 0 0.65rem;
+  color: var(--storefront-muted);
+  font-size: 0.69rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.header h1,
+.state h2,
+.productCard h2,
+.filterPanel h2 {
+  margin: 0;
+  color: var(--storefront-ink);
+  font-family: var(--storefront-font-body);
+  letter-spacing: -0.055em;
+}
+.header h1 {
+  font-size: clamp(3.1rem, 7vw, 6.75rem);
+  font-weight: 800;
+  line-height: 0.91;
+}
+.intro {
+  max-width: 42rem;
+  margin: 1.25rem 0 0;
+  color: var(--storefront-muted);
+  font-size: clamp(1rem, 1.4vw, 1.16rem);
+  line-height: 1.55;
+}
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  margin-top: clamp(2.75rem, 5vw, 4.5rem);
+}
+.searchForm,
+.filterButton,
+.sortControl {
+  min-height: 3.3rem;
+  border: 1px solid var(--storefront-border);
+  background: var(--storefront-surface);
+}
+.searchForm {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-left: 1rem;
+}
+.searchForm > span {
+  font-size: 1.35rem;
+  line-height: 1;
+  transform: rotate(-20deg);
+}
+.searchForm input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--storefront-ink);
+  font: inherit;
+}
+.searchForm button,
+.filterButton,
+.sortControl select,
+.secondaryButton,
+.primaryButton,
+.pagination button {
+  cursor: pointer;
+  font: inherit;
+}
+.searchForm button {
+  align-self: stretch;
+  border: 0;
+  border-left: 1px solid var(--storefront-border);
+  background: transparent;
+  padding-inline: 1rem;
+  color: var(--storefront-ink);
+  font-size: 0.84rem;
+  font-weight: 720;
+}
+.filterButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-inline: 1.15rem;
+  color: var(--storefront-ink);
+  font-size: 0.9rem;
+  font-weight: 730;
+}
+.filterButton::before {
+  content: '☷';
+  font-size: 1.2rem;
+}
+.filterButton span {
+  display: grid;
+  width: 1.3rem;
+  height: 1.3rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--storefront-accent);
+  font-size: 0.72rem;
+}
+.sortControl {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-left: 1rem;
+  color: var(--storefront-muted);
+  font-size: 0.82rem;
+}
+.sortControl select {
+  align-self: stretch;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 0 2.4rem 0 0;
+  color: var(--storefront-ink);
+  font-size: 0.86rem;
+  font-weight: 720;
+}
+.activeFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+.activeFilters span {
+  border: 1px solid var(--storefront-border);
+  background: #eef0ed;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.78rem;
+  text-transform: capitalize;
+}
+.activeFilters button {
+  border: 0;
+  background: transparent;
+  padding: 0.45rem 0.2rem;
+  color: var(--storefront-ink);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 680;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+.resultsSummary {
+  margin: 2.25rem 0 1.15rem;
+  color: var(--storefront-muted);
+  font-size: 0.88rem;
+}
+.productGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(1.2rem, 2vw, 1.75rem);
+}
+.productImageLink {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: #eceeec;
+  aspect-ratio: 0.83;
+}
+.productImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 220ms ease;
+}
+.productImageLink:hover .productImage,
+.productImageLink:focus-visible .productImage {
+  transform: scale(1.035);
+}
+.imagePlaceholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #818783;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+.productArrow {
+  position: absolute;
+  right: 0.8rem;
+  top: 0.8rem;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  background: rgb(255 255 255 / 0.9);
+  color: var(--storefront-ink);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.productImageLink:hover .productArrow,
+.productImageLink:focus-visible .productArrow {
+  opacity: 1;
+}
+.productDetails {
+  padding-top: 0.85rem;
+}
+.productDetails > p {
+  margin: 0;
+  color: var(--storefront-muted);
+  font-size: 0.77rem;
+}
+.productCard h2 {
+  margin-top: 0.25rem;
+  font-size: 1.04rem;
+  font-weight: 750;
+  line-height: 1.05;
+}
+.productCard h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+.productCard h2 a:hover,
+.productCard h2 a:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 0.22rem;
+}
+.productMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  font-size: 0.86rem;
+}
+.available,
+.unavailable {
+  color: var(--storefront-muted);
+  font-size: 0.73rem;
+}
+.available::before,
+.unavailable::before {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--storefront-accent);
+  content: '';
+}
+.unavailable::before {
+  background: #aeb3af;
+}
+.productSkeleton {
+  min-height: 21rem;
+  background: linear-gradient(110deg, #f0f0ee 30%, #fafaf8 45%, #f0f0ee 60%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+.state {
+  max-width: 42rem;
+  margin: 1rem 0 0;
+  border: 1px solid var(--storefront-border);
+  background: var(--storefront-surface);
+  padding: 2rem;
+}
+.state h2 {
+  font-size: clamp(1.65rem, 3vw, 2.4rem);
+  font-weight: 760;
+}
+.state p:not(.eyebrow) {
+  margin: 0.8rem 0 0;
+  color: var(--storefront-muted);
+  line-height: 1.5;
+}
+.secondaryButton,
+.primaryButton {
+  min-height: 3rem;
+  border: 1px solid var(--storefront-ink);
+  padding: 0.7rem 1rem;
+  color: var(--storefront-ink);
+  font-size: 0.86rem;
+  font-weight: 730;
+}
+.secondaryButton {
+  background: transparent;
+}
+.primaryButton {
+  border-color: var(--storefront-accent);
+  background: var(--storefront-accent);
+}
+.state .secondaryButton {
+  margin-top: 1.4rem;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 3rem;
+}
+.pagination button {
+  min-height: 2.7rem;
+  border: 1px solid var(--storefront-border);
+  background: var(--storefront-surface);
+  padding: 0.55rem 0.9rem;
+  color: var(--storefront-ink);
+}
+.pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.filterLayer {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+}
+.filterBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgb(16 19 18 / 0.44);
+}
+.filterPanel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: min(100%, 30rem);
+  flex-direction: column;
+  overflow: auto;
+  background: var(--storefront-surface);
+  padding: 1.5rem;
+  box-shadow: -1rem 0 3rem rgb(0 0 0 / 0.12);
+}
+.filterPanelHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--storefront-border);
+}
+.filterPanel h2 {
+  font-size: 2rem;
+  font-weight: 780;
+}
+.filterPanelHeader button {
+  width: 2.6rem;
+  height: 2.6rem;
+  border: 1px solid var(--storefront-border);
+  background: transparent;
+  color: var(--storefront-ink);
+  cursor: pointer;
+  font-size: 1.7rem;
+  line-height: 1;
+}
+.filterGroup {
+  margin: 0;
+  padding: 1.5rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--storefront-border);
+}
+.filterGroup legend {
+  margin-bottom: 1rem;
+  font-size: 0.75rem;
+  font-weight: 780;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.filterGroup label {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0;
+  color: var(--storefront-ink);
+  font-size: 0.94rem;
+}
+.filterGroup input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--storefront-ink);
+}
+.filterActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: auto;
+  padding-top: 1.5rem;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (max-width: 780px) {
+  .controls {
+    grid-template-columns: 1fr auto;
+  }
+  .searchForm {
+    grid-column: 1/-1;
+  }
+  .sortControl {
+    justify-content: space-between;
+  }
+  .productGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .catalog {
+    width: min(100% - 2rem, 88rem);
+    padding-top: 1.75rem;
+  }
+  .breadcrumbs {
+    margin-bottom: 1.7rem;
+  }
+  .controls {
+    grid-template-columns: 1fr;
+  }
+  .filterButton,
+  .sortControl {
+    width: 100%;
+  }
+  .filterButton {
+    justify-content: center;
+  }
+  .productGrid {
+    gap: 0.8rem;
+  }
+  .productCard h2 {
+    font-size: 0.95rem;
+  }
+  .productMeta {
+    align-items: start;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .filterPanel {
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .productImage,
+  .productArrow,
+  .productSkeleton {
+    animation: none;
+    transition: none;
+  }
+}

@@ -1,0 +1,464 @@
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  min-height: min(42rem, calc(100vh - 4rem));
+  border-bottom: 1px solid var(--storefront-border);
+}
+
+.heroCopy,
+.section,
+.featured {
+  width: min(100% - 3rem, 88rem);
+  margin-inline: auto;
+}
+
+.heroCopy {
+  align-self: center;
+  max-width: 37rem;
+  padding: clamp(4rem, 8vw, 8rem) clamp(1.5rem, 5vw, 6rem);
+}
+
+.eyebrow {
+  margin: 0 0 0.65rem;
+  color: var(--storefront-muted);
+  font-size: 0.69rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.hero h1,
+.section h2,
+.featured h2,
+.productCard h3,
+.featuredProduct h3 {
+  margin: 0;
+  color: var(--storefront-ink);
+  font-family: var(--storefront-font-body);
+  letter-spacing: -0.055em;
+}
+
+.hero h1 {
+  max-width: 11ch;
+  font-size: clamp(3.25rem, 6.2vw, 6.4rem);
+  font-weight: 800;
+  line-height: 0.93;
+}
+
+.heroCopy > p:not(.eyebrow),
+.featuredCopy > p:not(.eyebrow) {
+  max-width: 32rem;
+  margin: 1.5rem 0 0;
+  color: var(--storefront-muted);
+  font-size: clamp(1rem, 1.4vw, 1.15rem);
+  line-height: 1.55;
+}
+
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.primaryAction,
+.secondaryAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 3.15rem;
+  padding: 0.75rem 1.25rem;
+  border: 1px solid var(--storefront-ink);
+  color: var(--storefront-ink);
+  font-size: 0.9rem;
+  font-weight: 750;
+  text-decoration: none;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.primaryAction {
+  border-color: var(--storefront-accent);
+  background: var(--storefront-accent);
+}
+
+.secondaryAction:hover,
+.secondaryAction:focus-visible {
+  background: var(--storefront-ink);
+  color: var(--storefront-surface);
+}
+
+.primaryAction:hover,
+.primaryAction:focus-visible {
+  background: #d6ff2b;
+  transform: translateY(-1px);
+}
+
+.heroImage {
+  width: 100%;
+  min-height: 100%;
+  object-fit: cover;
+  object-position: 73% center;
+}
+
+.section {
+  padding-block: clamp(4.5rem, 8vw, 7.5rem);
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.section h2,
+.featured h2 {
+  font-size: clamp(2.1rem, 4vw, 4rem);
+  font-weight: 780;
+  line-height: 0.98;
+}
+
+.textAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--storefront-ink);
+  font-size: 0.9rem;
+  font-weight: 720;
+  text-decoration: underline;
+  text-underline-offset: 0.25rem;
+}
+
+.productGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(1rem, 2vw, 1.75rem);
+}
+
+.productCard {
+  min-width: 0;
+}
+
+.productImageLink {
+  display: block;
+  overflow: hidden;
+  background: #f0f1f0;
+  aspect-ratio: 0.88;
+}
+
+.productImage,
+.featuredImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 220ms ease;
+}
+
+.productImageLink:hover .productImage,
+.productImageLink:focus-visible .productImage {
+  transform: scale(1.035);
+}
+
+.productFallback,
+.featuredFallback {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #858888;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.productDetails {
+  padding-top: 0.85rem;
+}
+
+.productCategory,
+.productPrice {
+  margin: 0;
+}
+
+.productCategory {
+  color: var(--storefront-muted);
+  font-size: 0.78rem;
+}
+
+.productCard h3 {
+  margin-top: 0.28rem;
+  font-size: 1.05rem;
+  font-weight: 740;
+  line-height: 1.1;
+}
+
+.productCard h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.productCard h3 a:hover,
+.productCard h3 a:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 0.22rem;
+}
+
+.productPrice {
+  margin-top: 0.42rem;
+  color: var(--storefront-ink);
+  font-size: 0.92rem;
+  font-weight: 750;
+}
+
+.productSkeleton,
+.featuredPlaceholder {
+  min-height: 21rem;
+  background: linear-gradient(110deg, #f0f0ee 30%, #fafaf8 45%, #f0f0ee 60%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+.catalogMessage {
+  margin: 0;
+  padding: 2rem 0;
+  color: var(--storefront-muted);
+}
+
+.catalogMessage a {
+  color: var(--storefront-ink);
+}
+
+.purposeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.purposeCard {
+  position: relative;
+  display: block;
+  min-height: clamp(18rem, 29vw, 27rem);
+  overflow: hidden;
+  color: #fff;
+  text-decoration: none;
+}
+
+.purposeCard::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(0 0 0 / 0.04) 33%, rgb(0 0 0 / 0.74) 100%);
+  content: '';
+}
+
+.purposeCard img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 260ms ease;
+}
+
+.purposeCard:hover img,
+.purposeCard:focus-visible img {
+  transform: scale(1.035);
+}
+
+.purposeOverlay {
+  position: absolute;
+  z-index: 1;
+  right: 1.25rem;
+  bottom: 1.2rem;
+  left: 1.25rem;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.purposeOverlay strong,
+.purposeOverlay small {
+  display: block;
+}
+
+.purposeOverlay strong {
+  font-size: clamp(1.55rem, 2.8vw, 2.4rem);
+  font-weight: 780;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.purposeOverlay small {
+  max-width: 20ch;
+  margin-top: 0.45rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.purposeArrow {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 0.72);
+  font-size: 1.2rem;
+}
+
+.featured {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(2rem, 7vw, 8rem);
+  align-items: center;
+  margin-bottom: clamp(4.5rem, 8vw, 7.5rem);
+  padding: clamp(2rem, 5vw, 4.5rem);
+  background: #eef0ef;
+}
+
+.featuredCopy {
+  max-width: 31rem;
+}
+
+.featuredCopy .secondaryAction {
+  margin-top: 2rem;
+}
+
+.featuredProduct {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(12rem, 0.72fr);
+  min-height: 22rem;
+  background: var(--storefront-surface);
+}
+
+.featuredImage,
+.featuredFallback {
+  min-height: 22rem;
+  background: #e3e5e4;
+}
+
+.featuredProductDetails {
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  padding: 1.5rem;
+}
+
+.featuredProduct h3 {
+  font-size: clamp(1.45rem, 2.3vw, 2rem);
+  font-weight: 760;
+  line-height: 1;
+}
+
+.featuredProductDetails > p:not(.eyebrow) {
+  margin: 0.75rem 0 1.4rem;
+  font-weight: 700;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .heroCopy {
+    padding-top: 5rem;
+    padding-bottom: 4rem;
+  }
+
+  .heroImage {
+    max-height: 38rem;
+    min-height: 30rem;
+    object-position: 67% center;
+  }
+
+  .productGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .purposeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .purposeCard {
+    min-height: 20rem;
+  }
+
+  .featured {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .heroCopy,
+  .section,
+  .featured {
+    width: min(100% - 2rem, 88rem);
+  }
+
+  .heroCopy {
+    padding-inline: 0;
+  }
+
+  .hero h1 {
+    font-size: clamp(3rem, 14vw, 4.4rem);
+  }
+
+  .heroActions,
+  .heroActions a {
+    width: 100%;
+  }
+
+  .heroImage {
+    min-height: 24rem;
+  }
+
+  .sectionHeading {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .productGrid {
+    gap: 0.8rem;
+  }
+
+  .productCard h3 {
+    font-size: 0.95rem;
+  }
+
+  .featured {
+    gap: 2rem;
+    padding: 1.35rem;
+  }
+
+  .featuredProduct {
+    grid-template-columns: 1fr;
+  }
+
+  .featuredImage,
+  .featuredFallback {
+    min-height: 17rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primaryAction,
+  .secondaryAction,
+  .productImage,
+  .purposeCard img,
+  .productSkeleton,
+  .featuredPlaceholder {
+    animation: none;
+    transition: none;
+  }
+}
