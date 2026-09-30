@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class OrderTimelineLineDto {
   @ApiProperty() productName!: string;
@@ -31,9 +31,28 @@ export class OrderTimelineEventDto {
   @ApiProperty() label!: string;
 }
 
+export class OrderTimelineShipmentItemDto {
+  @ApiProperty() productName!: string;
+  @ApiProperty() variantName!: string;
+  @ApiProperty({ minimum: 1 }) quantity!: number;
+}
+
+export class OrderTimelineShipmentDto {
+  @ApiProperty({ minimum: 1 }) ordinal!: number;
+  @ApiProperty({ minimum: 1 }) total!: number;
+  @ApiProperty() status!: string;
+  @ApiProperty({ type: [OrderTimelineShipmentItemDto] }) items!: OrderTimelineShipmentItemDto[];
+  @ApiPropertyOptional({ nullable: true }) carrierCode!: string | null;
+  @ApiPropertyOptional({ nullable: true }) trackingReference!: string | null;
+}
+
 export class OrderTimelineDto {
   @ApiProperty() orderReference!: string;
   @ApiProperty() status!: string;
+  @ApiProperty({
+    enum: ['PREPARING', 'PARTIALLY_SHIPPED', 'SHIPPED', 'PARTIALLY_DELIVERED', 'DELIVERED'],
+  })
+  fulfillmentProgress!: string;
   @ApiProperty() currency!: 'USD';
   @ApiProperty() subtotalMinor!: number;
   @ApiProperty() shippingMinor!: number;
@@ -41,5 +60,6 @@ export class OrderTimelineDto {
   @ApiProperty() totalMinor!: number;
   @ApiProperty({ type: [OrderTimelineLineDto] }) lines!: OrderTimelineLineDto[];
   @ApiProperty({ type: [OrderTimelineEventDto] }) events!: OrderTimelineEventDto[];
+  @ApiProperty({ type: [OrderTimelineShipmentDto] }) shipments!: OrderTimelineShipmentDto[];
   @ApiProperty() accessExpiresAt!: string;
 }

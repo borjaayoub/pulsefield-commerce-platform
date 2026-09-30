@@ -82,8 +82,8 @@ export default function OrderTimelinePage() {
           <p className="eyebrow">Order {timeline.orderReference}</p>
           <h1>Your order</h1>
           <p className="detail-note">
-            Live server-verified status · access expires{' '}
-            {new Date(timeline.accessExpiresAt).toLocaleDateString('en-US')}
+            {timeline.fulfillmentProgress.replaceAll('_', ' ')} · live server-verified status ·
+            access expires {new Date(timeline.accessExpiresAt).toLocaleDateString('en-US')}
           </p>
         </header>
         <div className="cart-layout">
@@ -99,6 +99,30 @@ export default function OrderTimelinePage() {
                 </li>
               ))}
             </ol>
+            <section aria-labelledby="shipments-heading">
+              <h2 id="shipments-heading">Shipments</h2>
+              {timeline.shipments.map((shipment) => (
+                <article key={shipment.ordinal} className="order-line">
+                  <strong>
+                    Shipment {shipment.ordinal} of {shipment.total} ·{' '}
+                    {shipment.status.replaceAll('_', ' ')}
+                  </strong>
+                  {shipment.items.map((item, index) => (
+                    <span key={`${item.productName}-${item.variantName}-${index}`}>
+                      {item.productName} · {item.variantName} × {item.quantity}
+                    </span>
+                  ))}
+                  {shipment.carrierCode && shipment.trackingReference ? (
+                    <span>
+                      {shipment.carrierCode} · {shipment.trackingReference}
+                    </span>
+                  ) : null}
+                </article>
+              ))}
+              {!timeline.shipments.length ? (
+                <p className="detail-note">Preparing shipment details.</p>
+              ) : null}
+            </section>
           </section>
           <aside className="cart-summary">
             <p className="eyebrow">Order summary</p>

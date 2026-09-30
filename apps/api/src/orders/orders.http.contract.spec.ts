@@ -55,6 +55,7 @@ describe('guest order timeline HTTP contract', () => {
     read.mockResolvedValue({
       orderReference: 'PF-TEST00000001',
       status: 'confirmed',
+      fulfillmentProgress: 'PREPARING',
       currency: 'USD',
       subtotalMinor: 1000,
       shippingMinor: 0,
@@ -62,6 +63,7 @@ describe('guest order timeline HTTP contract', () => {
       totalMinor: 1080,
       lines: [],
       events: [],
+      shipments: [],
       accessExpiresAt: '2026-10-14T00:00:00.000Z',
     });
   });

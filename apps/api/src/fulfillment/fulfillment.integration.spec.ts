@@ -9,6 +9,7 @@ import { IdempotencyRetentionService } from '../idempotency/idempotency-retentio
 import { IdempotencyConflictError } from '../idempotency/idempotency.errors';
 import {
   AccountStatus,
+  AuditActorType,
   CartStatus,
   CommercePolicyLifecycle,
   FulfillmentGroupStatus,
@@ -447,6 +448,70 @@ describe('reservation expiry and staff fulfillment database integration', () => 
     ).resolves.toMatchObject({ status: OrderStatus.CONFIRMED });
   });
 
+  it('ships split groups independently and applies each group decrement exactly once', async () => {
+    const groups = await createSplitFulfillmentGroups();
+    expect(groups).toHaveLength(2);
+    const staff = await createStaff();
+    const [first, second] = groups;
+    const firstBalance = await prisma.inventoryBalance.findUniqueOrThrow({
+      where: { warehouseId_variantId: { warehouseId: first.warehouseId, variantId: VARIANT_ID } },
+    });
+    const secondBalance = await prisma.inventoryBalance.findUniqueOrThrow({
+      where: { warehouseId_variantId: { warehouseId: second.warehouseId, variantId: VARIANT_ID } },
+    });
+
+    await advanceToPacked(first.id, staff.id, 'first');
+    const shipment = {
+      ...transitionInput(first.id, 3, 31, FulfillmentGroupStatus.SHIPPED),
+      carrierCode: 'UPS',
+      trackingReference: 'SPLIT_FIRST_123',
+    };
+    const shipmentCommand = command(staff.id, 'split-first-shipped');
+    const shipped = await fulfillment.transition(shipment, shipmentCommand);
+    const replay = await fulfillment.transition(shipment, shipmentCommand);
+    expect(replay).toEqual(shipped);
+    await expect(
+      prisma.fulfillmentGroup.findUniqueOrThrow({ where: { id: second.id } }),
+    ).resolves.toMatchObject({ status: FulfillmentGroupStatus.ALLOCATED, version: 1 });
+    await expect(
+      prisma.inventoryBalance.findUniqueOrThrow({ where: { id: firstBalance.id } }),
+    ).resolves.toMatchObject({
+      onHand: firstBalance.onHand - first.items[0]!.quantity,
+      allocated: firstBalance.allocated - first.items[0]!.quantity,
+    });
+    await expect(
+      prisma.inventoryBalance.findUniqueOrThrow({ where: { id: secondBalance.id } }),
+    ).resolves.toMatchObject({
+      onHand: secondBalance.onHand,
+      allocated: secondBalance.allocated,
+    });
+    await expect(
+      prisma.inventoryMovement.count({
+        where: { commandId: first.id, type: InventoryMovementType.FULFILLMENT_DECREMENT },
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.inventoryMovement.count({
+        where: { commandId: second.id, type: InventoryMovementType.FULFILLMENT_DECREMENT },
+      }),
+    ).resolves.toBe(0);
+
+    await advanceToPacked(second.id, staff.id, 'second');
+    await fulfillment.transition(
+      {
+        ...transitionInput(second.id, 3, 32, FulfillmentGroupStatus.SHIPPED),
+        carrierCode: 'DHL',
+        trackingReference: 'SPLIT_SECOND_123',
+      },
+      command(staff.id, 'split-second-shipped'),
+    );
+    await expect(
+      prisma.inventoryMovement.count({
+        where: { commandId: second.id, type: InventoryMovementType.FULFILLMENT_DECREMENT },
+      }),
+    ).resolves.toBe(1);
+  });
+
   it('rejects skipped/backward and stale transitions, then safely replays or conflicts idempotency', async () => {
     const prepared = await prepareCart();
     const confirmed = await checkout.create(
@@ -628,7 +693,96 @@ describe('reservation expiry and staff fulfillment database integration', () => 
         },
       }),
     ).rejects.toThrow();
+
+    await fulfillment.transition(
+      transitionInput(group.id, 1, 40, FulfillmentGroupStatus.PICKING),
+      command((await createStaff()).id, 'invariant-picking'),
+    );
+    const staff = await createStaff();
+    await fulfillment.transition(
+      transitionInput(group.id, 2, 41, FulfillmentGroupStatus.PACKED),
+      command(staff.id, 'invariant-packed'),
+    );
+    await expect(
+      prisma.$transaction(async (tx) => {
+        await tx.fulfillmentGroup.update({
+          where: { id: group.id },
+          data: {
+            status: FulfillmentGroupStatus.SHIPPED,
+            version: 4,
+            shippedAt: new Date(),
+            carrierCode: 'UPS',
+            trackingReference: 'INVARIANT_123',
+          },
+        });
+      }),
+    ).rejects.toThrow('fulfillment shipment movements do not match group allocation');
   });
+
+  async function advanceToPacked(groupId: string, staffId: string, suffix: string): Promise<void> {
+    await fulfillment.transition(
+      transitionInput(groupId, 1, 20, FulfillmentGroupStatus.PICKING),
+      command(staffId, `${suffix}-picking`),
+    );
+    await fulfillment.transition(
+      transitionInput(groupId, 2, 21, FulfillmentGroupStatus.PACKED),
+      command(staffId, `${suffix}-packed`),
+    );
+  }
+
+  async function createSplitFulfillmentGroups() {
+    const balances = await prisma.inventoryBalance.findMany({
+      where: { variantId: VARIANT_ID },
+      include: { warehouse: true },
+      orderBy: { warehouseId: 'asc' },
+    });
+    for (const balance of balances) {
+      const onHand = balance.warehouse.code === 'MA-CASA-01' ? 0 : 1;
+      await prisma.inventoryBalance.update({
+        where: { id: balance.id },
+        data: { onHand, version: { increment: 1 } },
+      });
+      await prisma.inventoryMovement.create({
+        data: {
+          warehouseId: balance.warehouseId,
+          variantId: balance.variantId,
+          type: InventoryMovementType.ADJUSTMENT,
+          onHandDelta: onHand - balance.onHand,
+          resultingOnHand: onHand,
+          resultingReserved: balance.reserved,
+          resultingAllocated: balance.allocated,
+          resultingDamaged: balance.damaged,
+          commandId: randomUUID(),
+          commandSequence: 1,
+          actorType: AuditActorType.SYSTEM,
+          actorId: 'system:fulfillment-integration',
+          reason: 'Constrain stock for split fulfillment shipment.',
+        },
+      });
+    }
+    const current = await carts.getCurrent(undefined);
+    const updated = await carts.setItem(current.token, VARIANT_ID, 2, current.cart.revision);
+    const preview = await checkout.preview(updated.token, updated.revision, {
+      shippingAddress: ADDRESS,
+    });
+    const confirmed = await checkout.create(
+      updated.token,
+      updated.revision,
+      `checkout-split-fulfillment-${randomUUID()}`,
+      {
+        shippingAddress: ADDRESS,
+        customerEmail: 'split-fulfillment@example.test',
+        pricingFingerprint: preview.pricingFingerprint,
+        paymentMethodReference: 'stub-success',
+      },
+      `request-split-fulfillment-${randomUUID()}`,
+    );
+    return prisma.fulfillmentGroup.findMany({
+      where: { orderId: confirmed.orderId },
+      include: { items: true },
+      orderBy: { warehouseId: 'asc' },
+    });
+  }
 
   async function prepareCart(): Promise<PreparedCart> {
     const current = await carts.getCurrent(undefined);

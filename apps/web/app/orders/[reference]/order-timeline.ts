@@ -1,6 +1,7 @@
 export type OrderTimeline = {
   orderReference: string;
   status: string;
+  fulfillmentProgress: string;
   currency: 'USD';
   subtotalMinor: number;
   shippingMinor: number;
@@ -14,6 +15,14 @@ export type OrderTimeline = {
     lineTotalMinor: number;
   }>;
   events: Array<{ type: string; occurredAt: string; label: string }>;
+  shipments: Array<{
+    ordinal: number;
+    total: number;
+    status: string;
+    items: Array<{ productName: string; variantName: string; quantity: number }>;
+    carrierCode: string | null;
+    trackingReference: string | null;
+  }>;
   accessExpiresAt: string;
 };
 

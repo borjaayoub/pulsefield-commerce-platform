@@ -152,6 +152,7 @@ export class OperationsOrderItemDto {
   id!: string;
   reference!: string;
   status!: OrderStatus;
+  fulfillmentProgress!: string;
   currency!: string;
   subtotalMinor!: number;
   shippingMinor!: number;
@@ -159,6 +160,13 @@ export class OperationsOrderItemDto {
   totalMinor!: number;
   destination!: { city: string; state: string; countryCode: string };
   lines!: Array<{ sku: string; productName: string; quantity: number; unitPriceMinor: number }>;
+  fulfillmentGroups!: Array<{
+    warehouseCode: string;
+    status: FulfillmentGroupStatus;
+    version: number;
+    etag: string;
+    items: Array<{ sku: string; quantity: number }>;
+  }>;
   createdAt!: string;
   updatedAt!: string;
 }
@@ -197,10 +205,14 @@ export class OperationsReconciliationItemDto {
 export class OperationsFulfillmentItemDto {
   id!: string;
   orderReference!: string;
+  orderFulfillmentProgress!: string;
   warehouseCode!: string;
   status!: FulfillmentGroupStatus;
   version!: number;
+  etag!: string;
+  carrierCode!: string | null;
   trackingReference!: string | null;
+  items!: Array<{ sku: string; productName: string; quantity: number }>;
   createdAt!: string;
   updatedAt!: string;
   pickingStartedAt!: string | null;

@@ -12,6 +12,7 @@ import {
   digestGuestOrderAccessToken,
 } from './guest-order-access';
 import type { OrderTimelineDto, OrderTimelineEventDto } from './order-timeline.dto';
+import { fulfillmentProgress } from '../fulfillment/fulfillment-progress';
 
 function safeMoney(value: bigint): number {
   const number = Number(value);
@@ -71,7 +72,17 @@ export class OrderTimelineService {
         recoveryReservation: true,
         paymentAttempts: { orderBy: { createdAt: 'asc' } },
         paymentCompensations: { orderBy: { createdAt: 'asc' } },
-        fulfillmentGroups: { orderBy: { createdAt: 'asc' } },
+        fulfillmentGroups: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          include: {
+            items: {
+              orderBy: { id: 'asc' },
+              include: {
+                orderLine: { select: { productNameSnapshot: true, variantNameSnapshot: true } },
+              },
+            },
+          },
+        },
       },
     });
     if (!order?.guestAccessGrant) throw new NotFoundException();
@@ -138,6 +149,9 @@ export class OrderTimelineService {
     return {
       orderReference: order.reference,
       status: order.status.toLowerCase(),
+      fulfillmentProgress: fulfillmentProgress(
+        order.fulfillmentGroups.map((group) => group.status),
+      ),
       currency: 'USD',
       subtotalMinor: safeMoney(order.subtotalMinor),
       shippingMinor: safeMoney(order.shippingMinor),
@@ -151,6 +165,18 @@ export class OrderTimelineService {
         lineTotalMinor: safeMoney(line.lineTotalMinor),
       })),
       events,
+      shipments: order.fulfillmentGroups.map((group, index) => ({
+        ordinal: index + 1,
+        total: order.fulfillmentGroups.length,
+        status: group.status,
+        items: group.items.map((item) => ({
+          productName: item.orderLine.productNameSnapshot,
+          variantName: item.orderLine.variantNameSnapshot,
+          quantity: item.quantity,
+        })),
+        carrierCode: group.carrierCode,
+        trackingReference: group.trackingReference,
+      })),
       accessExpiresAt: order.guestAccessGrant.expiresAt.toISOString(),
     };
   }

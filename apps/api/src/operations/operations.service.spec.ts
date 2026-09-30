@@ -483,6 +483,20 @@ describe('OperationsService', () => {
             createdAt: new Date(),
             updatedAt: new Date(),
             lines: [],
+            fulfillmentGroups: [
+              {
+                status: 'SHIPPED',
+                version: 3,
+                warehouse: { code: 'US-EAST-01' },
+                items: [{ quantity: 2, orderLine: { skuSnapshot: 'SKU-1' } }],
+              },
+              {
+                status: 'PACKED',
+                version: 2,
+                warehouse: { code: 'EU-CENTRAL-01' },
+                items: [{ quantity: 1, orderLine: { skuSnapshot: 'SKU-2' } }],
+              },
+            ],
           },
         ]),
       },
@@ -497,5 +511,17 @@ describe('OperationsService', () => {
       countryCode: 'US',
     });
     expect(JSON.stringify(result.items[0])).not.toMatch(/Private Person|Private Street|00000/u);
+    expect(result.items[0]).toMatchObject({
+      fulfillmentProgress: 'PARTIALLY_SHIPPED',
+      fulfillmentGroups: expect.arrayContaining([
+        {
+          warehouseCode: 'US-EAST-01',
+          status: 'SHIPPED',
+          version: 3,
+          etag: '"fulfillment-3"',
+          items: [{ sku: 'SKU-1', quantity: 2 }],
+        },
+      ]),
+    });
   });
 });

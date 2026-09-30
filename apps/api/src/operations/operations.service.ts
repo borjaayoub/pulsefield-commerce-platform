@@ -20,6 +20,7 @@ import {
   ReconciliationQueryDto,
 } from './operations.dto';
 import { OPERATIONS_CURSOR_KEY } from './operations.constants';
+import { fulfillmentProgress } from '../fulfillment/fulfillment-progress';
 
 const CURSOR_VERSION = 1;
 const MAX_SAFE_MINOR = BigInt(Number.MAX_SAFE_INTEGER);
@@ -416,6 +417,18 @@ export class OperationsService {
             unitPriceMinor: true,
           },
         },
+        fulfillmentGroups: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: {
+            status: true,
+            version: true,
+            warehouse: { select: { code: true } },
+            items: {
+              orderBy: { id: 'asc' },
+              select: { quantity: true, orderLine: { select: { skuSnapshot: true } } },
+            },
+          },
+        },
       },
     });
     const visible = records.slice(0, this.pageSize(query));
@@ -434,6 +447,7 @@ export class OperationsService {
         id: o.id,
         reference: o.reference,
         status: o.status,
+        fulfillmentProgress: fulfillmentProgress(o.fulfillmentGroups.map((group) => group.status)),
         currency: o.currencyCode,
         subtotalMinor: minor(o.subtotalMinor),
         shippingMinor: minor(o.shippingMinor),
@@ -445,6 +459,16 @@ export class OperationsService {
           productName: l.productNameSnapshot,
           quantity: l.quantity,
           unitPriceMinor: minor(l.unitPriceMinor),
+        })),
+        fulfillmentGroups: o.fulfillmentGroups.map((group) => ({
+          warehouseCode: group.warehouse.code,
+          status: group.status,
+          version: group.version,
+          etag: `"fulfillment-${group.version}"`,
+          items: group.items.map((item) => ({
+            sku: item.orderLine.skuSnapshot,
+            quantity: item.quantity,
+          })),
         })),
         createdAt: o.createdAt.toISOString(),
         updatedAt: o.updatedAt.toISOString(),
@@ -622,7 +646,14 @@ export class OperationsService {
         createdAt: true,
         updatedAt: true,
         warehouse: { select: { code: true } },
-        order: { select: { reference: true } },
+        order: { select: { reference: true, fulfillmentGroups: { select: { status: true } } } },
+        items: {
+          orderBy: { id: 'asc' },
+          select: {
+            quantity: true,
+            orderLine: { select: { skuSnapshot: true, productNameSnapshot: true } },
+          },
+        },
       },
     });
     const visible = records.slice(0, this.pageSize(query));
@@ -630,10 +661,20 @@ export class OperationsService {
       items: visible.map((f) => ({
         id: f.id,
         orderReference: f.order.reference,
+        orderFulfillmentProgress: fulfillmentProgress(
+          f.order.fulfillmentGroups.map((group) => group.status),
+        ),
         warehouseCode: f.warehouse.code,
         status: f.status,
         version: f.version,
+        etag: `"fulfillment-${f.version}"`,
+        carrierCode: f.carrierCode,
         trackingReference: f.trackingReference,
+        items: f.items.map((item) => ({
+          sku: item.orderLine.skuSnapshot,
+          productName: item.orderLine.productNameSnapshot,
+          quantity: item.quantity,
+        })),
         createdAt: f.createdAt.toISOString(),
         updatedAt: f.updatedAt.toISOString(),
         pickingStartedAt: date(f.pickingStartedAt),

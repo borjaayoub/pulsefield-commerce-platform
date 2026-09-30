@@ -36,6 +36,7 @@ const FULFILLMENT_INCLUDE = {
       id: true,
       status: true,
       reservation: { include: { items: true } },
+      recoveryReservation: { include: { items: true } },
       paymentAttempts: {
         where: { status: PaymentAttemptStatus.SUCCEEDED },
         orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
@@ -426,7 +427,8 @@ export class FulfillmentService {
   ): Promise<void> {
     if (
       group.order.status !== OrderStatus.CONFIRMED ||
-      group.order.reservation.status !== ReservationStatus.COMMITTED ||
+      (group.order.recoveryReservation ?? group.order.reservation).status !==
+        ReservationStatus.COMMITTED ||
       group.order.paymentAttempts.length !== 1
     ) {
       throw new FulfillmentConflictError(
@@ -435,23 +437,27 @@ export class FulfillmentService {
         group.version,
       );
     }
+    const reservation = group.order.recoveryReservation ?? group.order.reservation;
+    const expectedItems = reservation.items.filter(
+      (item) => item.warehouseId === group.warehouseId,
+    );
     if (
-      group.items.length !== group.order.lines.length ||
+      group.items.length !== expectedItems.length ||
       group.items.some(
         (item) =>
           item.orderLine.orderId !== group.order.id ||
-          item.quantity !== item.orderLine.quantity ||
-          !group.order.reservation.items.some(
+          !expectedItems.some(
             (reservationItem) =>
               reservationItem.variantId === item.orderLine.variantId &&
-              reservationItem.warehouseId === group.warehouseId &&
               reservationItem.quantity === item.quantity,
           ),
       ) ||
-      group.order.lines.some(
-        (line) =>
+      expectedItems.some(
+        (reservationItem) =>
           !group.items.some(
-            (item) => item.orderLineId === line.id && item.quantity === line.quantity,
+            (item) =>
+              item.orderLine.variantId === reservationItem.variantId &&
+              item.quantity === reservationItem.quantity,
           ),
       )
     ) {

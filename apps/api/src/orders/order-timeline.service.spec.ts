@@ -1,4 +1,10 @@
 import { NotFoundException } from '@nestjs/common';
+import {
+  FulfillmentGroupStatus,
+  OrderStatus,
+  PaymentAttemptStatus,
+  ReservationStatus,
+} from '../generated/prisma/enums';
 import { createGuestOrderAccessToken } from './guest-order-access';
 import { OrderTimelineService } from './order-timeline.service';
 
@@ -49,5 +55,88 @@ describe('guest order timeline', () => {
     const service = new OrderTimelineService({ order: { findFirst } } as never, key);
     await expect(service.read('PF-TEST0001', undefined)).rejects.toBeInstanceOf(NotFoundException);
     expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it('returns customer-safe shipment groups with stable presentation ordinals', async () => {
+    const access = createGuestOrderAccessToken(orderId, key, grantId);
+    const now = new Date('2026-09-30T12:00:00.000Z');
+    const findFirst = jest.fn().mockResolvedValue({
+      reference: 'PF-TEST0001',
+      status: OrderStatus.CONFIRMED,
+      subtotalMinor: 1000n,
+      shippingMinor: 0n,
+      taxMinor: 80n,
+      totalMinor: 1080n,
+      createdAt: now,
+      guestAccessGrant: { expiresAt: new Date('2026-10-14T00:00:00.000Z') },
+      lines: [],
+      reservation: { status: ReservationStatus.COMMITTED, updatedAt: now },
+      recoveryReservation: null,
+      paymentAttempts: [{ status: PaymentAttemptStatus.SUCCEEDED, updatedAt: now }],
+      paymentCompensations: [],
+      fulfillmentGroups: [
+        {
+          id: 'group-1',
+          status: FulfillmentGroupStatus.SHIPPED,
+          createdAt: now,
+          pickingStartedAt: null,
+          packedAt: null,
+          shippedAt: now,
+          deliveredAt: null,
+          carrierCode: 'UPS',
+          trackingReference: 'TRACK-1',
+          warehouseId: 'warehouse-internal',
+          items: [
+            {
+              quantity: 2,
+              orderLine: { productNameSnapshot: 'Sprint Tee', variantNameSnapshot: 'Blue / M' },
+            },
+          ],
+        },
+        {
+          id: 'group-2',
+          status: FulfillmentGroupStatus.PACKED,
+          createdAt: new Date('2026-09-30T12:01:00.000Z'),
+          pickingStartedAt: null,
+          packedAt: now,
+          shippedAt: null,
+          deliveredAt: null,
+          carrierCode: null,
+          trackingReference: null,
+          warehouseId: 'warehouse-internal-2',
+          items: [],
+        },
+      ],
+    });
+    const timeline = await new OrderTimelineService({ order: { findFirst } } as never, key).read(
+      'PF-TEST0001',
+      access.token,
+    );
+
+    expect(timeline.fulfillmentProgress).toBe('PARTIALLY_SHIPPED');
+    expect(timeline.shipments).toEqual([
+      {
+        ordinal: 1,
+        total: 2,
+        status: 'SHIPPED',
+        items: [{ productName: 'Sprint Tee', variantName: 'Blue / M', quantity: 2 }],
+        carrierCode: 'UPS',
+        trackingReference: 'TRACK-1',
+      },
+      {
+        ordinal: 2,
+        total: 2,
+        status: 'PACKED',
+        items: [],
+        carrierCode: null,
+        trackingReference: null,
+      },
+    ]);
+    expect(JSON.stringify(timeline)).not.toMatch(
+      /warehouse|group-1|group-2|balance|audit|provider/iu,
+    );
+    expect(findFirst.mock.calls[0][0].include.fulfillmentGroups).toMatchObject({
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
   });
 });

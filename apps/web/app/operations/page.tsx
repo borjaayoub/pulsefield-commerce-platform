@@ -59,6 +59,7 @@ export default function OperationsPage() {
   const [page, setPage] = useState<Page | null>(null);
   const [cursor, setCursor] = useState<string | undefined>();
   const [error, setError] = useState('');
+  const [transitionNotice, setTransitionNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   useEffect(() => {
@@ -191,6 +192,12 @@ export default function OperationsPage() {
       },
     );
     if (!response.ok) {
+      if (response.status === 409) {
+        setTransitionNotice('This fulfillment group changed. The queue has been refreshed.');
+        setPage(null);
+        setRefreshNonce((current) => current + 1);
+        return;
+      }
       setError(
         response.status === 401 || response.status === 403
           ? 'Your staff session expired or needs recent MFA reauthentication.'
@@ -198,6 +205,7 @@ export default function OperationsPage() {
       );
       return;
     }
+    setTransitionNotice('Fulfillment group updated.');
     setPage(null);
     setRefreshNonce((current) => current + 1);
   }
@@ -255,6 +263,11 @@ export default function OperationsPage() {
           {!loading && error ? (
             <p role="alert" className="cart-message">
               {error}
+            </p>
+          ) : null}
+          {transitionNotice ? (
+            <p role="status" className="state">
+              {transitionNotice}
             </p>
           ) : null}
           {!loading && !error && page?.items.length === 0 ? (
