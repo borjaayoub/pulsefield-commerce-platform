@@ -11,7 +11,6 @@ import {
   OrderStatus,
   PaymentAttemptStatus,
   ReservationStatus,
-  WarehouseStatus,
   CommercePolicyLifecycle,
 } from '../generated/prisma/enums';
 import { IdempotencyService, type IdempotencyClaim } from '../idempotency/idempotency.service';
@@ -39,12 +38,17 @@ import type {
 } from './checkout.dto';
 import { OrderTimelineService } from '../orders/order-timeline.service';
 import { normalizeEmail } from '../identity/normalize-email';
+import {
+  inventoryBalanceKey,
+  InventoryAllocationPolicyUnavailableError,
+  lockInventoryAllocation,
+  readInventoryAllocation,
+} from '../inventory/inventory-allocation.persistence';
 
 type CheckoutPayments = Pick<PaymentProvider, 'createPayment'> &
   Partial<Pick<PaymentApplicationService, 'initialAttemptStatus' | 'provider' | 'publishableKey'>>;
 
 const TAX_NOTICE = 'Simulated tax for this local demo only; not tax advice.';
-const PHASE_3_WAREHOUSE_CODE = 'US-EAST-01';
 const UNSAFE_CHECKOUT_VALUE_MESSAGE = 'Checkout is temporarily unavailable.';
 
 const CHECKOUT_CART_INCLUDE = {
@@ -605,44 +609,26 @@ export class CheckoutService {
   }
 
   private async assertCurrentAvailability(cart: CheckoutCart): Promise<void> {
-    const warehouse = await this.resolvePhase3Warehouse(this.prisma);
-    const balances = await this.prisma.inventoryBalance.groupBy({
-      by: ['variantId'],
-      where: {
-        variantId: { in: cart.items.map((item) => item.variantId) },
-        warehouseId: warehouse.id,
-      },
-      _sum: { onHand: true, reserved: true, allocated: true, damaged: true },
-    });
-    const available = new Map(
-      balances.map((balance) => [
-        balance.variantId,
-        (balance._sum.onHand ?? 0) -
-          (balance._sum.reserved ?? 0) -
-          (balance._sum.allocated ?? 0) -
-          (balance._sum.damaged ?? 0),
-      ]),
-    );
-    for (const item of cart.items) {
-      if ((available.get(item.variantId) ?? 0) < item.quantity)
-        throw new CheckoutConflictError(
-          'INSUFFICIENT_STOCK',
-          'A cart item no longer has enough available stock.',
-        );
-    }
-  }
-
-  private async resolvePhase3Warehouse(client: PrismaService | Prisma.TransactionClient) {
-    const warehouse = await client.warehouse.findUnique({
-      where: { code: PHASE_3_WAREHOUSE_CODE },
-      select: { id: true, code: true, countryCode: true, status: true },
-    });
-    if (!warehouse || warehouse.status !== WarehouseStatus.ACTIVE || warehouse.countryCode !== 'US')
-      throw new CheckoutConflictError(
-        'CHECKOUT_UNAVAILABLE',
-        'Checkout is temporarily unavailable.',
+    let decision: Awaited<ReturnType<typeof readInventoryAllocation>>;
+    try {
+      decision = await readInventoryAllocation(
+        this.prisma,
+        cart.items.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
       );
-    return warehouse;
+    } catch (error) {
+      if (error instanceof InventoryAllocationPolicyUnavailableError) {
+        throw new CheckoutConflictError(
+          'CHECKOUT_UNAVAILABLE',
+          'Checkout is temporarily unavailable.',
+        );
+      }
+      throw error;
+    }
+    if (!decision)
+      throw new CheckoutConflictError(
+        'INSUFFICIENT_STOCK',
+        'A cart item no longer has enough available stock.',
+      );
   }
 
   private async createPending(
@@ -668,38 +654,28 @@ export class CheckoutService {
         const variants = [...lockedCart.items].sort((a, b) =>
           a.variantId.localeCompare(b.variantId),
         );
-        const variantIds = variants.map((item) => item.variantId);
-        if (variantIds.length === 0)
+        if (variants.length === 0)
           throw new CheckoutConflictError('CART_EMPTY', 'Add an item before checkout.');
-        const warehouse = await this.resolvePhase3Warehouse(tx);
-        await tx.$queryRaw`
-          SELECT "InventoryBalance"."id"
-          FROM "InventoryBalance"
-          WHERE "InventoryBalance"."variantId" IN (${Prisma.join(variantIds)})
-            AND "InventoryBalance"."warehouseId" = ${warehouse.id}
-          ORDER BY "InventoryBalance"."variantId" ASC,
-                   "InventoryBalance"."id" ASC
-          FOR UPDATE
-        `;
-        const balances = await tx.inventoryBalance.findMany({
-          where: {
-            variantId: { in: variantIds },
-            warehouseId: warehouse.id,
-          },
-          orderBy: [{ variantId: 'asc' }, { id: 'asc' }],
-        });
-        const balancesByVariant = new Map(balances.map((balance) => [balance.variantId, balance]));
-        for (const line of variants) {
-          const balance = balancesByVariant.get(line.variantId);
-          if (
-            !balance ||
-            balance.onHand - balance.reserved - balance.allocated - balance.damaged < line.quantity
-          )
+        let allocationDecision: Awaited<ReturnType<typeof lockInventoryAllocation>>;
+        try {
+          allocationDecision = await lockInventoryAllocation(
+            tx,
+            variants.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
+          );
+        } catch (error) {
+          if (error instanceof InventoryAllocationPolicyUnavailableError) {
             throw new CheckoutConflictError(
-              'INSUFFICIENT_STOCK',
-              'A cart item no longer has enough available stock.',
+              'CHECKOUT_UNAVAILABLE',
+              'Checkout is temporarily unavailable.',
             );
+          }
+          throw error;
         }
+        if (!allocationDecision)
+          throw new CheckoutConflictError(
+            'INSUFFICIENT_STOCK',
+            'A cart item no longer has enough available stock.',
+          );
         const [{ now }] = await tx.$queryRaw<
           Array<{ now: Date }>
         >`SELECT CURRENT_TIMESTAMP AS "now"`;
@@ -755,10 +731,15 @@ export class CheckoutService {
             'Pricing changed. Refresh the checkout preview and try again.',
           );
         const reservation = await tx.inventoryReservation.create({
-          data: { expiresAt: new Date(now.getTime() + policy.reservationDurationSeconds * 1000) },
+          data: {
+            expiresAt: new Date(now.getTime() + policy.reservationDurationSeconds * 1000),
+            allocationPolicyVersionId: allocationDecision.policyVersionId,
+          },
         });
-        for (const [sequence, line] of variants.entries()) {
-          const balance = balancesByVariant.get(line.variantId);
+        for (const [sequence, allocation] of allocationDecision.allocations.entries()) {
+          const balance = allocationDecision.balancesByKey.get(
+            inventoryBalanceKey(allocation.warehouseId, allocation.variantId),
+          );
           if (!balance)
             throw new CheckoutConflictError(
               'INSUFFICIENT_STOCK',
@@ -766,22 +747,22 @@ export class CheckoutService {
             );
           const updated = await tx.inventoryBalance.update({
             where: { id: balance.id },
-            data: { reserved: { increment: line.quantity }, version: { increment: 1 } },
+            data: { reserved: { increment: allocation.quantity }, version: { increment: 1 } },
           });
           await tx.inventoryReservationItem.create({
             data: {
               reservationId: reservation.id,
               warehouseId: balance.warehouseId,
-              variantId: line.variantId,
-              quantity: line.quantity,
+              variantId: allocation.variantId,
+              quantity: allocation.quantity,
             },
           });
           await tx.inventoryMovement.create({
             data: {
               warehouseId: balance.warehouseId,
-              variantId: line.variantId,
+              variantId: allocation.variantId,
               type: InventoryMovementType.RESERVED,
-              reservedDelta: line.quantity,
+              reservedDelta: allocation.quantity,
               resultingOnHand: updated.onHand,
               resultingReserved: updated.reserved,
               resultingAllocated: updated.allocated,

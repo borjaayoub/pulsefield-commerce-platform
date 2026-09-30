@@ -14,6 +14,11 @@ import {
 import { PaymentApplicationService } from './payment-application.service';
 import { PaymentOutcomeService } from './payment-outcome.service';
 import { decideAuthoritativePaymentReconciliation } from './payment-reconciliation';
+import {
+  inventoryBalanceKey,
+  InventoryAllocationPolicyUnavailableError,
+  lockInventoryAllocation,
+} from '../inventory/inventory-allocation.persistence';
 
 export class PaymentReconciliationConflictError extends Error {
   readonly code = 'PAYMENT_RECONCILIATION_CONFLICT';
@@ -173,33 +178,16 @@ export class PaymentReconciliationExecutionService {
     ) {
       conflict();
     }
-    const items = [...attempt.order.reservation.items].sort(
-      (left, right) =>
-        left.variantId.localeCompare(right.variantId) ||
-        left.warehouseId.localeCompare(right.warehouseId),
-    );
-    if (items.length === 0) conflict();
-    const variantIds = [...new Set(items.map((item) => item.variantId))];
-    const warehouseIds = [...new Set(items.map((item) => item.warehouseId))];
-    await tx.$queryRaw`
-      SELECT "id" FROM "InventoryBalance"
-      WHERE "variantId" IN (${Prisma.join(variantIds)})
-        AND "warehouseId" IN (${Prisma.join(warehouseIds)})
-      ORDER BY "variantId", "warehouseId", "id" FOR UPDATE
-    `;
-    const balances = await tx.inventoryBalance.findMany({
-      where: { variantId: { in: variantIds }, warehouseId: { in: warehouseIds } },
-    });
-    const byKey = new Map(
-      balances.map((balance) => [`${balance.warehouseId}:${balance.variantId}`, balance]),
-    );
-    const hasStock = items.every((item) => {
-      const balance = byKey.get(`${item.warehouseId}:${item.variantId}`);
-      return (
-        !!balance &&
-        balance.onHand - balance.reserved - balance.allocated - balance.damaged >= item.quantity
+    let allocationDecision: Awaited<ReturnType<typeof lockInventoryAllocation>>;
+    try {
+      allocationDecision = await lockInventoryAllocation(
+        tx,
+        attempt.order.lines.map((line) => ({ variantId: line.variantId, quantity: line.quantity })),
       );
-    });
+    } catch (error) {
+      if (error instanceof InventoryAllocationPolicyUnavailableError) conflict();
+      throw error;
+    }
 
     const paymentChanged = await tx.paymentAttempt.updateMany({
       where: {
@@ -211,7 +199,7 @@ export class PaymentReconciliationExecutionService {
     });
     if (paymentChanged.count !== 1) conflict();
 
-    if (!hasStock) {
+    if (!allocationDecision) {
       await tx.order.update({
         where: { id: attempt.order.id },
         data: { status: OrderStatus.MANUAL_RESOLUTION },
@@ -230,9 +218,16 @@ export class PaymentReconciliationExecutionService {
       return { outcome: 'COMPENSATION_REQUIRED', compensationId: compensation.id };
     }
 
-    const recovery = await tx.inventoryReservation.create({ data: { expiresAt: new Date() } });
-    for (const [sequence, item] of items.entries()) {
-      const balance = byKey.get(`${item.warehouseId}:${item.variantId}`)!;
+    const recovery = await tx.inventoryReservation.create({
+      data: {
+        expiresAt: new Date(),
+        allocationPolicyVersionId: allocationDecision.policyVersionId,
+      },
+    });
+    for (const [sequence, item] of allocationDecision.allocations.entries()) {
+      const balance = allocationDecision.balancesByKey.get(
+        inventoryBalanceKey(item.warehouseId, item.variantId),
+      )!;
       const reserved = await tx.inventoryBalance.update({
         where: { id: balance.id },
         data: { reserved: { increment: item.quantity }, version: { increment: 1 } },
@@ -263,8 +258,10 @@ export class PaymentReconciliationExecutionService {
         },
       });
     }
-    for (const [sequence, item] of items.entries()) {
-      const balance = byKey.get(`${item.warehouseId}:${item.variantId}`)!;
+    for (const [sequence, item] of allocationDecision.allocations.entries()) {
+      const balance = allocationDecision.balancesByKey.get(
+        inventoryBalanceKey(item.warehouseId, item.variantId),
+      )!;
       const committed = await tx.inventoryBalance.update({
         where: { id: balance.id },
         data: {
@@ -300,11 +297,16 @@ export class PaymentReconciliationExecutionService {
       where: { id: attempt.order.id },
       data: { status: OrderStatus.CONFIRMED, recoveryReservationId: recovery.id },
     });
+    const warehouseIds = [
+      ...new Set(allocationDecision.allocations.map((item) => item.warehouseId)),
+    ];
     for (const warehouseId of warehouseIds) {
       const group = await tx.fulfillmentGroup.create({
         data: { orderId: attempt.order.id, warehouseId },
       });
-      const warehouseItems = items.filter((item) => item.warehouseId === warehouseId);
+      const warehouseItems = allocationDecision.allocations.filter(
+        (item) => item.warehouseId === warehouseId,
+      );
       await tx.fulfillmentGroupItem.createMany({
         data: warehouseItems.map((item) => ({
           fulfillmentGroupId: group.id,

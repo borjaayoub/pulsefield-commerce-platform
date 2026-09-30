@@ -10,6 +10,7 @@ import {
   CartStatus,
   CommercePolicyLifecycle,
   FulfillmentRegion,
+  InventoryAllocationPolicyLifecycle,
   InventoryMovementType,
   NotificationDeliveryType,
   OrderStatus,
@@ -112,6 +113,9 @@ describe('checkout, reservation, and payment database integration', () => {
     expect(order.priceBookVersionId).toBe('61000000-0000-4000-8000-000000000001');
     expect(order.customerEmailNormalized).toBe('checkout@example.test');
     expect(order.policyVersionId).toBe(POLICY_ID);
+    expect(order.reservation.allocationPolicyVersionId).toBe(
+      '74100000-0000-4000-8000-000000000001',
+    );
     expect(order.lines[0]).toMatchObject({
       variantId: VARIANT_ID,
       variantNameSnapshot: 'Aero Tempo Tee — S',
@@ -129,6 +133,12 @@ describe('checkout, reservation, and payment database integration', () => {
       prisma.order.update({
         where: { id: order.id },
         data: { customerEmailNormalized: 'changed@example.test' },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      prisma.inventoryReservation.update({
+        where: { id: order.reservationId },
+        data: { allocationPolicyVersionId: null },
       }),
     ).rejects.toThrow();
     await expect(
@@ -271,6 +281,26 @@ describe('checkout, reservation, and payment database integration', () => {
     ).resolves.toBe(1);
   });
 
+  it('fails checkout closed when no active inventory allocation policy exists', async () => {
+    const prepared = await prepareCart();
+    const active = await prisma.inventoryAllocationPolicyVersion.findFirstOrThrow({
+      where: { lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE },
+    });
+    await prisma.inventoryAllocationPolicyVersion.update({
+      where: { id: active.id },
+      data: {
+        lifecycle: InventoryAllocationPolicyLifecycle.RETIRED,
+        retiredAt: new Date(),
+      },
+    });
+
+    await expect(
+      checkout.preview(prepared.token, prepared.revision, { shippingAddress: ADDRESS }),
+    ).rejects.toMatchObject({ code: 'CHECKOUT_UNAVAILABLE' });
+    await expect(prisma.inventoryReservation.count()).resolves.toBe(0);
+    await expect(prisma.order.count()).resolves.toBe(0);
+  });
+
   it('protects active policy history and rejects inconsistent payment transitions', async () => {
     const policy = await prisma.commercePolicyVersion.findUniqueOrThrow({
       where: { id: POLICY_ID },
@@ -375,31 +405,34 @@ describe('checkout, reservation, and payment database integration', () => {
   });
 
   it('serializes fifty competing attempts against constrained stock without overselling', async () => {
-    const balance = await prisma.inventoryBalance.findFirstOrThrow({
-      where: { variantId: VARIANT_ID, warehouse: { code: 'US-EAST-01' } },
+    const balances = await prisma.inventoryBalance.findMany({
+      where: { variantId: VARIANT_ID },
+      orderBy: { warehouseId: 'asc' },
     });
-    const constrainedOnHand = 3;
-    await prisma.inventoryBalance.update({
-      where: { id: balance.id },
-      data: { onHand: constrainedOnHand, version: { increment: 1 } },
-    });
-    await prisma.inventoryMovement.create({
-      data: {
-        warehouseId: balance.warehouseId,
-        variantId: balance.variantId,
-        type: InventoryMovementType.ADJUSTMENT,
-        onHandDelta: constrainedOnHand - balance.onHand,
-        resultingOnHand: constrainedOnHand,
-        resultingReserved: balance.reserved,
-        resultingAllocated: balance.allocated,
-        resultingDamaged: balance.damaged,
-        commandId: randomUUID(),
-        commandSequence: 1,
-        actorType: AuditActorType.SYSTEM,
-        actorId: 'system:checkout-integration',
-        reason: 'Constrain stock for checkout contention test.',
-      },
-    });
+    for (const balance of balances) {
+      await prisma.inventoryBalance.update({
+        where: { id: balance.id },
+        data: { onHand: 1, version: { increment: 1 } },
+      });
+      await prisma.inventoryMovement.create({
+        data: {
+          warehouseId: balance.warehouseId,
+          variantId: balance.variantId,
+          type: InventoryMovementType.ADJUSTMENT,
+          onHandDelta: 1 - balance.onHand,
+          resultingOnHand: 1,
+          resultingReserved: balance.reserved,
+          resultingAllocated: balance.allocated,
+          resultingDamaged: balance.damaged,
+          commandId: randomUUID(),
+          commandSequence: 1,
+          actorType: AuditActorType.SYSTEM,
+          actorId: 'system:checkout-integration',
+          reason: 'Constrain regional stock for checkout contention test.',
+        },
+      });
+    }
+    const totalConstrainedStock = balances.length;
 
     const prepared = await Promise.all(Array.from({ length: 50 }, () => prepareCart()));
     const attempts = await Promise.allSettled(
@@ -419,12 +452,12 @@ describe('checkout, reservation, and payment database integration', () => {
       ): attempt is PromiseFulfilledResult<Awaited<ReturnType<CheckoutService['create']>>> =>
         attempt.status === 'fulfilled' && attempt.value.checkoutStatus === 'confirmed',
     );
-    expect(succeeded).toHaveLength(constrainedOnHand);
+    expect(succeeded).toHaveLength(totalConstrainedStock);
     expect(attempts.filter((attempt) => attempt.status === 'fulfilled')).toHaveLength(
-      constrainedOnHand,
+      totalConstrainedStock,
     );
     const unsuccessful = attempts.filter((attempt) => attempt.status === 'rejected');
-    expect(unsuccessful).toHaveLength(50 - constrainedOnHand);
+    expect(unsuccessful).toHaveLength(50 - totalConstrainedStock);
     expect(
       unsuccessful.every(
         (attempt) =>
@@ -435,53 +468,52 @@ describe('checkout, reservation, and payment database integration', () => {
       ),
     ).toBe(true);
 
-    const finalBalance = await prisma.inventoryBalance.findUniqueOrThrow({
-      where: { id: balance.id },
-    });
-    expect(
-      finalBalance.onHand - finalBalance.reserved - finalBalance.allocated - finalBalance.damaged,
-    ).toBe(0);
-    expect(finalBalance.reserved).toBe(0);
-    expect(finalBalance.allocated).toBe(constrainedOnHand);
-    expect(finalBalance.onHand).toBe(constrainedOnHand);
-    expect(finalBalance.reserved).toBeGreaterThanOrEqual(0);
-    expect(finalBalance.allocated).toBeGreaterThanOrEqual(0);
-    const movementTotals = await prisma.inventoryMovement.aggregate({
-      where: { warehouseId: balance.warehouseId, variantId: balance.variantId },
-      _sum: { onHandDelta: true, reservedDelta: true, allocatedDelta: true, damagedDelta: true },
-    });
-    expect(movementTotals._sum.onHandDelta).toBe(finalBalance.onHand);
-    expect(movementTotals._sum.reservedDelta).toBe(finalBalance.reserved);
-    expect(movementTotals._sum.allocatedDelta).toBe(finalBalance.allocated);
-    expect(movementTotals._sum.damagedDelta).toBe(finalBalance.damaged);
+    for (const balance of balances) {
+      const finalBalance = await prisma.inventoryBalance.findUniqueOrThrow({
+        where: { id: balance.id },
+      });
+      expect(finalBalance).toMatchObject({ onHand: 1, reserved: 0, allocated: 1, damaged: 0 });
+      const movementTotals = await prisma.inventoryMovement.aggregate({
+        where: { warehouseId: balance.warehouseId, variantId: balance.variantId },
+        _sum: { onHandDelta: true, reservedDelta: true, allocatedDelta: true, damagedDelta: true },
+      });
+      expect(movementTotals._sum.onHandDelta).toBe(finalBalance.onHand);
+      expect(movementTotals._sum.reservedDelta).toBe(finalBalance.reserved);
+      expect(movementTotals._sum.allocatedDelta).toBe(finalBalance.allocated);
+      expect(movementTotals._sum.damagedDelta).toBe(finalBalance.damaged);
+    }
   });
 
-  it('uses the deterministic US-EAST-01 warehouse without cross-warehouse aggregation', async () => {
-    const primary = await prisma.inventoryBalance.findFirstOrThrow({
-      where: { variantId: VARIANT_ID, warehouse: { code: 'US-EAST-01' } },
+  it('splits eligible regional stock and ignores an unassigned warehouse', async () => {
+    const eligibleBalances = await prisma.inventoryBalance.findMany({
+      where: { variantId: VARIANT_ID },
+      include: { warehouse: true },
+      orderBy: { warehouseId: 'asc' },
     });
-    const primaryOnHand = 1;
-    await prisma.inventoryBalance.update({
-      where: { id: primary.id },
-      data: { onHand: primaryOnHand, version: { increment: 1 } },
-    });
-    await prisma.inventoryMovement.create({
-      data: {
-        warehouseId: primary.warehouseId,
-        variantId: primary.variantId,
-        type: InventoryMovementType.ADJUSTMENT,
-        onHandDelta: primaryOnHand - primary.onHand,
-        resultingOnHand: primaryOnHand,
-        resultingReserved: primary.reserved,
-        resultingAllocated: primary.allocated,
-        resultingDamaged: primary.damaged,
-        commandId: randomUUID(),
-        commandSequence: 1,
-        actorType: AuditActorType.SYSTEM,
-        actorId: 'system:checkout-integration',
-        reason: 'Constrain the deterministic checkout warehouse.',
-      },
-    });
+    for (const balance of eligibleBalances) {
+      const onHand = balance.warehouse.code === 'MA-CASA-01' ? 0 : 1;
+      await prisma.inventoryBalance.update({
+        where: { id: balance.id },
+        data: { onHand, version: { increment: 1 } },
+      });
+      await prisma.inventoryMovement.create({
+        data: {
+          warehouseId: balance.warehouseId,
+          variantId: balance.variantId,
+          type: InventoryMovementType.ADJUSTMENT,
+          onHandDelta: onHand - balance.onHand,
+          resultingOnHand: onHand,
+          resultingReserved: 0,
+          resultingAllocated: 0,
+          resultingDamaged: 0,
+          commandId: randomUUID(),
+          commandSequence: 1,
+          actorType: AuditActorType.SYSTEM,
+          actorId: 'system:checkout-integration',
+          reason: 'Constrain distributed checkout allocation.',
+        },
+      });
+    }
     const secondary = await prisma.warehouse.create({
       data: {
         id: randomUUID(),
@@ -520,12 +552,35 @@ describe('checkout, reservation, and payment database integration', () => {
 
     const current = await carts.getCurrent(undefined);
     const updated = await carts.setItem(current.token, VARIANT_ID, 2, current.cart.revision);
-    expect(updated.cart.items[0]).toMatchObject({ available: primaryOnHand + secondaryOnHand });
+    expect(updated.cart.items[0]).toMatchObject({ available: 2 });
+    const preview = await checkout.preview(updated.token, updated.revision, {
+      shippingAddress: ADDRESS,
+    });
+    const result = await checkout.create(
+      updated.token,
+      updated.revision,
+      'checkout-distributed-split-001',
+      {
+        shippingAddress: ADDRESS,
+        customerEmail: 'split@example.test',
+        pricingFingerprint: preview.pricingFingerprint,
+        paymentMethodReference: 'stub-success',
+      },
+      'req-checkout-distributed-split-001',
+    );
+    const reservationItems = await prisma.inventoryReservationItem.findMany({
+      where: { reservation: { order: { id: result.orderId } } },
+    });
+    expect(reservationItems).toHaveLength(2);
+    expect(new Set(reservationItems.map((item) => item.warehouseId)).size).toBe(2);
     await expect(
-      checkout.preview(updated.token, updated.revision, { shippingAddress: ADDRESS }),
-    ).rejects.toMatchObject({ code: 'INSUFFICIENT_STOCK' });
-    await expect(prisma.inventoryReservation.count()).resolves.toBe(0);
-    await expect(prisma.order.count()).resolves.toBe(0);
+      prisma.fulfillmentGroup.count({ where: { orderId: result.orderId } }),
+    ).resolves.toBe(2);
+    await expect(
+      prisma.fulfillmentGroup.create({
+        data: { orderId: result.orderId, warehouseId: secondary.id },
+      }),
+    ).rejects.toThrow();
   });
 
   async function prepareCart(): Promise<PreparedCart> {
@@ -607,6 +662,9 @@ async function clearCommerceData(prisma: PrismaService): Promise<void> {
       "CommercePolicyVersion",
       "InventoryMovement",
       "InventoryBalance",
+      "InventoryAllocationPolicyWarehouse",
+      "InventoryAllocationPolicyVersion",
+      "InventoryAllocationPolicy",
       "Warehouse",
       "VariantPrice",
       "PriceBookVersion",

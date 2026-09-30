@@ -680,6 +680,17 @@ describe('payment lifecycle database integration', () => {
       true,
       'RESERVATION_EXPIRED',
     );
+    const originalReservation = await prisma.inventoryReservation.findUniqueOrThrow({
+      where: { id: order.reservationId },
+      include: { items: true },
+    });
+    await prisma.inventoryBalance.updateMany({
+      where: {
+        warehouseId: originalReservation.items[0]!.warehouseId,
+        variantId: VARIANT_ID,
+      },
+      data: { onHand: 0, version: { increment: 1 } },
+    });
     const failed = await prisma.paymentAttempt.findUniqueOrThrow({ where: { id: attempt.id } });
     retrievePayment.mockResolvedValue({
       paymentId: failed.providerPaymentId,
@@ -717,6 +728,12 @@ describe('payment lifecycle database integration', () => {
       paymentCompensations: [],
       fulfillmentGroups: [{ status: 'ALLOCATED' }],
     });
+    expect(recovered.recoveryReservation!.allocationPolicyVersionId).toBe(
+      '74100000-0000-4000-8000-000000000001',
+    );
+    expect(recovered.recoveryReservation!.items[0]!.warehouseId).not.toBe(
+      originalReservation.items[0]!.warehouseId,
+    );
     await expect(
       prisma.inventoryMovement.groupBy({
         by: ['type'],
@@ -1162,7 +1179,9 @@ async function clearCommerceData(prisma: PrismaService): Promise<void> {
     TRUNCATE TABLE
       "PaymentWebhookInbox", "FulfillmentGroupItem", "FulfillmentGroup", "PaymentAttempt", "OrderLine", "Order",
       "InventoryReservationItem", "InventoryReservation", "CartItem", "Cart",
-      "CommercePolicyVersion", "InventoryMovement", "InventoryBalance", "Warehouse",
+      "CommercePolicyVersion", "InventoryMovement", "InventoryBalance",
+      "InventoryAllocationPolicyWarehouse", "InventoryAllocationPolicyVersion",
+      "InventoryAllocationPolicy", "Warehouse",
       "VariantPrice", "PriceBookVersion", "PriceBook", "ProductMedia", "ProductCategory",
       "Category", "ProductVariant", "ProductSlug", "Product"
     CASCADE

@@ -127,16 +127,33 @@ export class PaymentOutcomeService {
       const movementCount = await tx.inventoryMovement.count({
         where: { commandId: order.reservationId, type: movementType },
       });
+      const expectedWarehouseIds = new Set(reservationItems.map((item) => item.warehouseId));
       const hasExpectedFulfillment = committed
-        ? order.fulfillmentGroups.some(
-            (group) =>
-              group.status === 'ALLOCATED' &&
-              group.items.length === reservationItems.length &&
-              group.items.every((item) =>
-                order.lines.some(
-                  (line) => line.id === item.orderLineId && item.quantity === line.quantity,
-                ),
-              ),
+        ? order.fulfillmentGroups.length === expectedWarehouseIds.size &&
+          order.fulfillmentGroups.every(
+            (group) => group.status === 'ALLOCATED' && expectedWarehouseIds.has(group.warehouseId),
+          ) &&
+          order.fulfillmentGroups.reduce((total, group) => total + group.items.length, 0) ===
+            reservationItems.length &&
+          reservationItems.every((reservationItem) => {
+            const line = order.lines.find(
+              (candidate) => candidate.variantId === reservationItem.variantId,
+            );
+            const group = order.fulfillmentGroups.find(
+              (candidate) => candidate.warehouseId === reservationItem.warehouseId,
+            );
+            return group?.items.some(
+              (item) => item.orderLineId === line?.id && item.quantity === reservationItem.quantity,
+            );
+          }) &&
+          order.lines.every(
+            (line) =>
+              order.fulfillmentGroups.reduce(
+                (quantity, group) =>
+                  quantity +
+                  (group.items.find((item) => item.orderLineId === line.id)?.quantity ?? 0),
+                0,
+              ) === line.quantity,
           )
         : order.fulfillmentGroups.length === 0;
       const cart = await tx.cart.findUnique({
@@ -239,16 +256,20 @@ export class PaymentOutcomeService {
 
     if (succeeded) {
       await tx.order.update({ where: { id: order.id }, data: { status: OrderStatus.CONFIRMED } });
-      const group = await tx.fulfillmentGroup.create({
-        data: { orderId: order.id, warehouseId: order.reservation.items[0]!.warehouseId },
-      });
-      await tx.fulfillmentGroupItem.createMany({
-        data: reservationItems.map((item) => ({
-          fulfillmentGroupId: group.id,
-          orderLineId: order.lines.find((line) => line.variantId === item.variantId)!.id,
-          quantity: item.quantity,
-        })),
-      });
+      for (const warehouseId of warehouseIds) {
+        const group = await tx.fulfillmentGroup.create({
+          data: { orderId: order.id, warehouseId },
+        });
+        await tx.fulfillmentGroupItem.createMany({
+          data: reservationItems
+            .filter((item) => item.warehouseId === warehouseId)
+            .map((item) => ({
+              fulfillmentGroupId: group.id,
+              orderLineId: order.lines.find((line) => line.variantId === item.variantId)!.id,
+              quantity: item.quantity,
+            })),
+        });
+      }
       await tx.cartItem.deleteMany({ where: { cartId: order.cartId } });
       await tx.cart.update({
         where: { id: order.cartId },

@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { Prisma } from '../generated/prisma/client';
 import {
   CatalogLifecycle,
+  FulfillmentRegion,
+  InventoryAllocationPolicyLifecycle,
   PriceBookVersionLifecycle,
   WarehouseStatus,
 } from '../generated/prisma/enums';
@@ -18,6 +20,19 @@ import {
 const PUBLIC_MEDIA_ROOT = '/catalog';
 const MAX_SORT_CANDIDATES = 500;
 const PUBLIC_MEDIA_KEY = /^catalog\/[a-z0-9-]+\/(?:[a-z0-9-]+)\.(?:svg|webp|jpg|jpeg|png)$/u;
+const US_ELIGIBLE_INVENTORY_FILTER = {
+  warehouse: {
+    status: WarehouseStatus.ACTIVE,
+    allocationPolicyAssignments: {
+      some: {
+        policyVersion: {
+          lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE,
+          policy: { code: 'US-FULFILLMENT', destinationRegion: FulfillmentRegion.US },
+        },
+      },
+    },
+  },
+} satisfies Prisma.InventoryBalanceWhereInput;
 
 const PUBLIC_INCLUDE = {
   slugs: true,
@@ -34,7 +49,7 @@ const PUBLIC_INCLUDE = {
         include: { priceBookVersion: { include: { priceBook: true } } },
       },
       inventoryBalances: {
-        where: { warehouse: { status: WarehouseStatus.ACTIVE, countryCode: 'US' } },
+        where: US_ELIGIBLE_INVENTORY_FILTER,
       },
     },
   },
@@ -45,30 +60,7 @@ const PUBLIC_INCLUDE = {
   media: { where: { status: CatalogLifecycle.ACTIVE }, orderBy: { position: 'asc' } },
 } satisfies Prisma.ProductInclude;
 
-type PublicProductRecord = Prisma.ProductGetPayload<{
-  include: {
-    slugs: true;
-    variants: {
-      where: { status: CatalogLifecycle };
-      include: {
-        prices: {
-          where: {
-            priceBookVersion: {
-              lifecycle: PriceBookVersionLifecycle;
-              priceBook: { code: string; marketCode: string; currencyCode: string };
-            };
-          };
-          include: { priceBookVersion: { include: { priceBook: true } } };
-        };
-        inventoryBalances: {
-          where: { warehouse: { status: WarehouseStatus; countryCode: string } };
-        };
-      };
-    };
-    categories: { where: { category: { status: CatalogLifecycle } }; include: { category: true } };
-    media: { where: { status: CatalogLifecycle }; orderBy: { position: 'asc' } };
-  };
-}>;
+type PublicProductRecord = Prisma.ProductGetPayload<{ include: typeof PUBLIC_INCLUDE }>;
 
 type PublicVariantRecord = PublicProductRecord['variants'][number];
 

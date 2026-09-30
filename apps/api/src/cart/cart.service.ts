@@ -3,6 +3,8 @@ import { Prisma } from '../generated/prisma/client';
 import {
   CatalogLifecycle,
   CartStatus,
+  FulfillmentRegion,
+  InventoryAllocationPolicyLifecycle,
   PriceBookVersionLifecycle,
   WarehouseStatus,
 } from '../generated/prisma/enums';
@@ -23,6 +25,19 @@ import type { CartDto } from './cart.dto';
 
 const PUBLIC_MEDIA_ROOT = '/catalog';
 const PUBLIC_MEDIA_KEY = /^catalog\/[a-z0-9-]+\/(?:[a-z0-9-]+)\.(?:svg|webp|jpg|jpeg|png)$/u;
+const US_ELIGIBLE_INVENTORY_FILTER = {
+  warehouse: {
+    status: WarehouseStatus.ACTIVE,
+    allocationPolicyAssignments: {
+      some: {
+        policyVersion: {
+          lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE,
+          policy: { code: 'US-FULFILLMENT', destinationRegion: FulfillmentRegion.US },
+        },
+      },
+    },
+  },
+} satisfies Prisma.InventoryBalanceWhereInput;
 
 const PRICE_FILTER = {
   priceBookVersion: {
@@ -48,7 +63,7 @@ const CART_INCLUDE = {
           },
           prices: { where: PRICE_FILTER, include: { priceBookVersion: true } },
           inventoryBalances: {
-            where: { warehouse: { status: WarehouseStatus.ACTIVE, countryCode: 'US' } },
+            where: US_ELIGIBLE_INVENTORY_FILTER,
           },
         },
       },
@@ -218,7 +233,7 @@ export class CartService {
           product: true,
           prices: { where: PRICE_FILTER, include: { priceBookVersion: true } },
           inventoryBalances: {
-            where: { warehouse: { status: WarehouseStatus.ACTIVE, countryCode: 'US' } },
+            where: US_ELIGIBLE_INVENTORY_FILTER,
           },
         },
       });

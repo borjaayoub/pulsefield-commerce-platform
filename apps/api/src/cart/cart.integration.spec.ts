@@ -192,7 +192,7 @@ describe('persistent anonymous cart database integration', () => {
 
 async function clearCommerceData(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Cart", "InventoryMovement", "InventoryBalance", "VariantPrice", "PriceBookVersion", "PriceBook", "ProductVariant", "Product", "Warehouse" CASCADE',
+    'TRUNCATE TABLE "Cart", "InventoryMovement", "InventoryBalance", "InventoryAllocationPolicyWarehouse", "InventoryAllocationPolicyVersion", "InventoryAllocationPolicy", "VariantPrice", "PriceBookVersion", "PriceBook", "ProductVariant", "Product", "Warehouse" CASCADE',
   );
 }
 
