@@ -17,6 +17,10 @@ checkout behavior remain connected to the existing `/api/v1` contracts.
 
 Prerequisites: Node `24.19.0`, pnpm `11.19.0`, and Docker Compose. Docker is required only for the persistent and supporting local services; no cloud account is needed.
 
+The quality validators use the existing TypeScript compiler through a local Node
+runner, avoiding the Windows `tsx` account-lookup startup failure. Run
+`pnpm quality` as usual; see [the testing guide](docs/testing.md) for details.
+
 ```powershell
 Copy-Item .env.example .env
 pnpm local:secrets
