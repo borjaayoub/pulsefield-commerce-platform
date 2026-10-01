@@ -291,10 +291,13 @@ export class OperationsService {
       take: this.pageSize(query) + 1,
       select: {
         id: true,
+        warehouseId: true,
+        variantId: true,
         onHand: true,
         reserved: true,
         allocated: true,
         damaged: true,
+        lowStockThreshold: true,
         version: true,
         createdAt: true,
         warehouse: { select: { code: true } },
@@ -305,6 +308,8 @@ export class OperationsService {
     return {
       items: visible.map((b) => ({
         id: b.id,
+        warehouseId: b.warehouseId,
+        variantId: b.variantId,
         warehouseCode: b.warehouse.code,
         sku: b.variant.sku,
         onHand: b.onHand,
@@ -313,6 +318,7 @@ export class OperationsService {
         damaged: b.damaged,
         available: Math.max(0, b.onHand - b.reserved - b.allocated - b.damaged),
         version: b.version,
+        lowStockThreshold: b.lowStockThreshold,
       })),
       nextCursor:
         records.length > visible.length && visible.length

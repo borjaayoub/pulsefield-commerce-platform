@@ -2,6 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { InventoryOperationsPanel } from './inventory-operations-panel';
+import { InventoryTransferPanel } from './inventory-transfer-panel';
+import { useInventoryCommand } from './use-inventory-command';
 
 const API_ORIGIN = process.env.NEXT_PUBLIC_API_ORIGIN ?? 'http://localhost:4000';
 type Session = { user: { id: string; email: string; roles: string[] }; csrfToken: string };
@@ -10,10 +13,13 @@ type Page = { items: Row[]; nextCursor: string | null };
 const sections = [
   { key: 'catalog', label: 'Catalog' },
   { key: 'inventory', label: 'Inventory' },
+  { key: 'inventory-low-stock', label: 'Low stock' },
+  { key: 'inventory-transfers', label: 'Transfers' },
   { key: 'reservations', label: 'Reservations' },
   { key: 'orders', label: 'Orders' },
   { key: 'payments', label: 'Payments' },
-  { key: 'reconciliation', label: 'Reconciliation' },
+  { key: 'inventory-reconciliation', label: 'Inventory reconciliation' },
+  { key: 'reconciliation', label: 'Payment reconciliation' },
   { key: 'fulfillment', label: 'Fulfillment' },
   { key: 'audit', label: 'Audit evidence' },
 ];
@@ -62,6 +68,15 @@ export default function OperationsPage() {
   const [transitionNotice, setTransitionNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const command = useInventoryCommand(
+    () => {
+      setPage(null);
+      setRefreshNonce((current) => current + 1);
+    },
+    session?.csrfToken,
+    session?.user.id,
+    API_ORIGIN,
+  );
   useEffect(() => {
     void fetch(`${API_ORIGIN}/api/v1/auth/sessions/current`, { credentials: 'include' })
       .then(async (r) => {
@@ -81,7 +96,15 @@ export default function OperationsPage() {
     setError('');
     const qs = new URLSearchParams({ pageSize: '25' });
     if (cursor) qs.set('cursor', cursor);
-    void fetch(`${API_ORIGIN}/api/v1/staff/operations/${effectiveSection}?${qs}`, {
+    const endpoint =
+      effectiveSection === 'inventory-low-stock'
+        ? 'inventory-low-stock'
+        : effectiveSection === 'inventory-transfers'
+          ? 'inventory-transfers'
+          : effectiveSection === 'inventory-reconciliation'
+            ? 'inventory-reconciliation'
+            : effectiveSection;
+    void fetch(`${API_ORIGIN}/api/v1/staff/operations/${endpoint}?${qs}`, {
       credentials: 'include',
       cache: 'no-store',
     })
@@ -249,6 +272,68 @@ export default function OperationsPage() {
           <h2 id="operations-view-heading">
             {sections.find((item) => item.key === effectiveSection)?.label}
           </h2>
+          {admin && effectiveSection === 'inventory' && page?.items ? (
+            <InventoryOperationsPanel
+              apiOrigin={API_ORIGIN}
+              session={session!}
+              rows={page.items.filter(
+                (
+                  row,
+                ): row is Row & {
+                  id: string;
+                  version: number;
+                  onHand: number;
+                  damaged: number;
+                  lowStockThreshold: number;
+                  available: number;
+                } =>
+                  typeof row.id === 'string' &&
+                  typeof row.version === 'number' &&
+                  typeof row.onHand === 'number' &&
+                  typeof row.damaged === 'number' &&
+                  typeof row.lowStockThreshold === 'number' &&
+                  typeof row.available === 'number',
+              )}
+              refresh={() => {
+                setPage(null);
+                setRefreshNonce((current) => current + 1);
+              }}
+              command={command}
+            />
+          ) : null}
+          {admin && effectiveSection === 'inventory-transfers' && page?.items ? (
+            <InventoryTransferPanel
+              apiOrigin={API_ORIGIN}
+              session={session!}
+              rows={page.items}
+              refresh={() => {
+                setPage(null);
+                setRefreshNonce((current) => current + 1);
+              }}
+              command={command}
+            />
+          ) : null}
+          {effectiveSection === 'inventory-reconciliation' ? (
+            <section
+              aria-label="Inventory reconciliation details"
+              className="operations-read-only-note"
+            >
+              <p>
+                Page-scoped inventory reconciliation. Expected and actual buckets, transfer
+                evidence, and mismatch categories are shown by the API projection.
+              </p>
+              {page?.items.map((row) => (
+                <article key={value(row, 'balanceId')}>
+                  <strong>{value(row, 'balanceId')}</strong>
+                  <p>Categories: {value(row, 'mismatchCategories')}</p>
+                  <p>
+                    Actual: {value(row, 'actual')} · Ledger: {value(row, 'ledger')} · Business:{' '}
+                    {value(row, 'business')} · Transfer: {value(row, 'transfer')}
+                  </p>
+                </article>
+              ))}
+            </section>
+          ) : null}
           {effectiveSection === 'reconciliation' ? (
             <p className="lede operations-read-only-note">
               Read-only payment and recovery evidence. Provider references are masked; no payment
@@ -269,6 +354,12 @@ export default function OperationsPage() {
             <p role="status" className="state">
               {transitionNotice}
             </p>
+          ) : null}
+          {command.notice ? <p role="status">{command.notice}</p> : null}
+          {command.pending ? (
+            <button type="button" disabled={command.busy} onClick={() => void command.retry()}>
+              Retry exact inventory command
+            </button>
           ) : null}
           {!loading && !error && page?.items.length === 0 ? (
             <p className="state">No records in this view.</p>

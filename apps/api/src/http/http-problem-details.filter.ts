@@ -50,6 +50,10 @@ import {
   StripeWebhookPersistenceUnavailableError,
   StripeWebhookRequestError,
 } from '../payments/payment-webhook.errors';
+import {
+  InventoryOperationConflict,
+  InventoryOperationInvalid,
+} from '../inventory/inventory-operations.errors';
 
 interface ProblemDefinition {
   status: number;
@@ -173,6 +177,19 @@ function defineProblem(exception: unknown): ProblemDefinition {
       code: 'IDEMPOTENCY_KEY_CONFLICT',
       detail: exception.message,
     };
+  }
+  if (exception instanceof InventoryOperationConflict) {
+    return {
+      status: HttpStatus.CONFLICT,
+      code: exception.code,
+      detail: exception.message,
+      ...(exception.currentVersion !== undefined
+        ? { currentVersion: exception.currentVersion }
+        : {}),
+    };
+  }
+  if (exception instanceof InventoryOperationInvalid) {
+    return { status: HttpStatus.BAD_REQUEST, code: exception.code, detail: exception.message };
   }
   if (exception instanceof CartCheckoutPendingError) {
     return { status: HttpStatus.CONFLICT, code: exception.code, detail: exception.message };
@@ -390,6 +407,7 @@ export class HttpProblemDetailsFilter implements ExceptionFilter {
 
     response
       .status(problem.status)
+      .setHeader('Cache-Control', 'no-store')
       .type('application/problem+json')
       .json({
         type: problemType(problem.code),

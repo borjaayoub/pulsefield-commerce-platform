@@ -62,6 +62,7 @@ model IdempotencyRecord {
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
   fulfillmentTransitionResult FulfillmentTransitionResult?
+  inventoryCommandResult      InventoryCommandResult?
 
   @@unique([actorType, actorId, operation, keyDigest])
   @@index([status, lockedUntil])
@@ -194,6 +195,16 @@ enum InventoryMovementType {
   RESERVATION_EXPIRED
   RESERVATION_COMMITTED
   FULFILLMENT_DECREMENT
+  TRANSFER_DISPATCH
+  TRANSFER_RECEIPT
+  TRANSFER_DAMAGE
+}
+
+enum InventoryTransferStatus {
+  REQUESTED
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
 }
 
 enum CartStatus {
@@ -426,6 +437,7 @@ model ProductVariant {
   cartItems           CartItem[]
   reservationItems    InventoryReservationItem[]
   orderLines          OrderLine[]
+  transferLines       InventoryTransferLine[]
 
   @@index([productId, status, id])
 }
@@ -532,6 +544,8 @@ model Warehouse {
   reservationItems            InventoryReservationItem[]
   fulfillmentGroups           FulfillmentGroup[]
   allocationPolicyAssignments InventoryAllocationPolicyWarehouse[]
+  transferSources             InventoryTransfer[]                  @relation("TransferSource")
+  transferDestinations        InventoryTransfer[]                  @relation("TransferDestination")
 
   @@index([status, countryCode])
   @@index([status, fulfillmentRegion, code])
@@ -576,48 +590,104 @@ model InventoryAllocationPolicyWarehouse {
 }
 
 model InventoryBalance {
-  id          String         @id @default(uuid()) @db.Uuid
-  warehouse   Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  warehouseId String         @db.Uuid
-  variant     ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
-  variantId   String         @db.Uuid
-  onHand      Int
-  reserved    Int            @default(0)
-  allocated   Int            @default(0)
-  damaged     Int            @default(0)
-  version     Int            @default(1)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id                String         @id @default(uuid()) @db.Uuid
+  warehouse         Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  warehouseId       String         @db.Uuid
+  variant           ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  variantId         String         @db.Uuid
+  onHand            Int
+  reserved          Int            @default(0)
+  allocated         Int            @default(0)
+  damaged           Int            @default(0)
+  lowStockThreshold Int            @default(0)
+  version           Int            @default(1)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@unique([warehouseId, variantId])
   @@index([variantId, warehouseId])
 }
 
 model InventoryMovement {
-  id                 String                @id @default(uuid()) @db.Uuid
-  warehouse          Warehouse             @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  warehouseId        String                @db.Uuid
-  variant            ProductVariant        @relation(fields: [variantId], references: [id], onDelete: Restrict)
-  variantId          String                @db.Uuid
+  id                 String                 @id @default(uuid()) @db.Uuid
+  warehouse          Warehouse              @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  warehouseId        String                 @db.Uuid
+  variant            ProductVariant         @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  variantId          String                 @db.Uuid
   type               InventoryMovementType
-  onHandDelta        Int                   @default(0)
-  reservedDelta      Int                   @default(0)
-  allocatedDelta     Int                   @default(0)
-  damagedDelta       Int                   @default(0)
+  onHandDelta        Int                    @default(0)
+  reservedDelta      Int                    @default(0)
+  allocatedDelta     Int                    @default(0)
+  damagedDelta       Int                    @default(0)
   resultingOnHand    Int
   resultingReserved  Int
   resultingAllocated Int
   resultingDamaged   Int
-  commandId          String                @db.Uuid
-  commandSequence    Int                   @default(1)
+  commandId          String                 @db.Uuid
+  commandSequence    Int                    @default(1)
+  transferLine       InventoryTransferLine? @relation(fields: [transferLineId], references: [id], onDelete: Restrict)
+  transferLineId     String?                @db.Uuid
   actorType          AuditActorType
-  actorId            String                @db.VarChar(128)
-  reason             String                @db.VarChar(500)
-  occurredAt         DateTime              @default(now())
+  actorId            String                 @db.VarChar(128)
+  reason             String                 @db.VarChar(500)
+  occurredAt         DateTime               @default(now())
 
   @@unique([commandId, commandSequence])
   @@index([warehouseId, variantId, occurredAt])
   @@index([variantId, occurredAt])
+}
+
+model InventoryTransfer {
+  id                     String                   @id @default(uuid()) @db.Uuid
+  sourceWarehouse        Warehouse                @relation("TransferSource", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
+  sourceWarehouseId      String                   @db.Uuid
+  destinationWarehouse   Warehouse                @relation("TransferDestination", fields: [destinationWarehouseId], references: [id], onDelete: Restrict)
+  destinationWarehouseId String                   @db.Uuid
+  status                 InventoryTransferStatus  @default(REQUESTED)
+  version                Int                      @default(1)
+  reason                 String                   @db.VarChar(500)
+  createdBy              String                   @db.VarChar(128)
+  dispatchedAt           DateTime?
+  receivedAt             DateTime?
+  cancelledAt            DateTime?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  lines                  InventoryTransferLine[]
+  commandResults         InventoryCommandResult[]
+
+  @@index([status, createdAt, id])
+}
+
+model InventoryTransferLine {
+  id         String              @id @default(uuid()) @db.Uuid
+  transfer   InventoryTransfer   @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  transferId String              @db.Uuid
+  variant    ProductVariant      @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  variantId  String              @db.Uuid
+  quantity   Int
+  received   Int?
+  damaged    Int?
+  lost       Int?
+  movements  InventoryMovement[]
+
+  @@unique([transferId, variantId])
+}
+
+model InventoryCommandResult {
+  id                  String             @id @default(uuid()) @db.Uuid
+  idempotencyRecord   IdempotencyRecord  @relation(fields: [idempotencyRecordId], references: [id], onDelete: Cascade)
+  idempotencyRecordId String             @unique @db.Uuid
+  transfer            InventoryTransfer? @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  transferId          String?            @db.Uuid
+  resultType          String             @db.VarChar(128)
+  resourceId          String             @db.VarChar(128)
+  responseStatus      Int
+  version             Int
+  etag                String             @db.VarChar(128)
+  snapshot            Json
+  createdAt           DateTime           @default(now())
+
+  @@index([transferId, createdAt])
 }
 
 model Cart {

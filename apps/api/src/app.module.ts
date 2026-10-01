@@ -14,6 +14,7 @@ import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { FulfillmentModule } from './fulfillment/fulfillment.module';
 import { ReservationExpiryModule } from './reservation-expiry/reservation-expiry.module';
 import { OperationsModule } from './operations/operations.module';
+import { InventoryOperationsModule } from './inventory/inventory-operations.module';
 
 @Module({})
 export class AppModule {
@@ -28,6 +29,7 @@ export class AppModule {
         FulfillmentModule,
         ReservationExpiryModule.forRoot(profile),
         OperationsModule.forRoot(profile),
+        InventoryOperationsModule.forRoot(profile),
         AuditModule.forRoot(profile),
         ConfigurationModule,
         IdempotencyModule.forRoot(profile),

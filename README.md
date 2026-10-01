@@ -4,7 +4,7 @@ This repository is a portfolio-grade, modular e-commerce platform built in demon
 
 ## Current milestone
 
-Phase 1, **Architecture and delivery foundation**, Phase 2, **Identity and reliable messaging foundation**, and Phase 3, **Reference vertical slice**, are complete. Phase 4 is in progress: completed Slices 4.1–4.5c add the verified-payment lifecycle foundation, optional Stripe test-mode PaymentIntent preparation and embedded Payment Element, a signed durable webhook pipeline, authoritative reconciliation, one-time late-success allocation, idempotent full compensation, and a secure guest order timeline with committed-event Mailpit confirmation while preserving the zero-network stub default. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for exact evidence and the canonical-wrapper `ENOMEM` caveat.
+Phase 1 through Phase 4 and Phase 5 Slices 5.1–5.4 are implemented and verified. Phase 5.5 (committed-event realtime updates) is next. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for dated evidence and the distinction between canonical quality, guarded integration, and mocked browser checks.
 
 The protected Phase 3 operations dashboard is available at `/operations` after staff password and local TOTP MFA authentication. It uses masked, read-only projections; only fulfillers can advance the existing fulfillment path. Checkout defaults to the non-networked stub and seeded `US-EAST-01` warehouse; no Stripe or hosted payment service is required. Optional Stripe mode is test-only: it mounts the embedded Payment Element after server-owned checkout preparation, and only the verified asynchronous webhook/reconciliation path may confirm payment. Checkout collects an order-contact email, links guests to a digest-protected expiring timeline, and delivers confirmation only through the encrypted local Mailpit workflow after authoritative order confirmation.
 
@@ -101,3 +101,20 @@ pnpm quality
 - [Security baseline](docs/security.md)
 - [Testing guide](docs/testing.md)
 - [Architecture decisions](docs/adr/README.md)
+
+## Inventory operations
+
+The protected administrator operations area supports bounded stock adjustments,
+low-stock thresholds, warehouse transfer dispatch/receipt/cancellation, and
+page-scoped read-only reconciliation. It remains local-only and uses the
+existing session, MFA, CSRF, idempotency, audit, and PostgreSQL safeguards.
+For a local administrator rehearsal, sign in with a recent MFA-backed administrator
+session, open **Operations → Inventory**, adjust on-hand or damaged stock with a
+reason, and set a threshold. Open **Transfers** to create a multiline requested
+transfer, inspect its quantities, dispatch it, then enter received, damaged, and
+lost values for every line; an all-lost receipt is valid. Use **Low stock** and
+**Inventory reconciliation** to inspect bounded, page-scoped expected/actual
+evidence. Repeating a command with the same idempotency key replays its original
+response; uncertain network outcomes retain the exact retry. Browser tests use a
+mocked API, while PostgreSQL integration tests provide live persistence evidence;
+neither is a visual-approval claim.

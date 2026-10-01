@@ -142,11 +142,13 @@ describe('persistent anonymous cart database integration', () => {
   });
 
   it('rejects invalid persisted cart quantities and revisions', async () => {
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const absoluteExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const cart = await prisma.cart.create({
       data: {
         tokenDigest: requireDigest('a'.repeat(43)),
-        expiresAt: new Date('2026-10-01T00:00:00.000Z'),
-        absoluteExpiresAt: new Date('2026-12-01T00:00:00.000Z'),
+        expiresAt,
+        absoluteExpiresAt,
       },
     });
     await expect(
