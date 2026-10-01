@@ -22,7 +22,9 @@ describe('web CSP', () => {
       "script-src 'self' 'nonce-nonce-test' https://js.stripe.com https://*.js.stripe.com",
     );
     expect(policy).not.toContain("script-src 'self' 'unsafe-inline'");
-    expect(policy).toContain("connect-src 'self' http://localhost:4000 https://api.stripe.com");
+    expect(policy).toContain(
+      "connect-src 'self' http://localhost:4000 ws://localhost:4000 https://api.stripe.com",
+    );
     expect(policy).toContain(
       'frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com',
     );
@@ -55,7 +57,7 @@ describe('web CSP', () => {
     ]) {
       expect(safeApiOrigin(value)).toBe('http://localhost:4000');
       expect(buildContentSecurityPolicy('nonce-safe', false, value)).toContain(
-        "connect-src 'self' http://localhost:4000 https://api.stripe.com",
+        "connect-src 'self' http://localhost:4000 ws://localhost:4000 https://api.stripe.com",
       );
       expect(buildContentSecurityPolicy('nonce-safe', false, value)).not.toContain(value);
     }

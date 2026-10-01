@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@pulse-field/contracts": "workspace:*",
     "@pulse-field/design-tokens": "workspace:*",
     "@stripe/react-stripe-js": "6.10.0",
     "@stripe/stripe-js": "9.16.0",
@@ -16,6 +17,7 @@
     "next": "^16.0.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "socket.io-client": "^4.8.4",
     "tailwindcss": "^4.1.13"
   },
   "devDependencies": {

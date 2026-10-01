@@ -15,6 +15,7 @@ import { FulfillmentModule } from './fulfillment/fulfillment.module';
 import { ReservationExpiryModule } from './reservation-expiry/reservation-expiry.module';
 import { OperationsModule } from './operations/operations.module';
 import { InventoryOperationsModule } from './inventory/inventory-operations.module';
+import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({})
 export class AppModule {
@@ -36,6 +37,7 @@ export class AppModule {
         RateLimitModule.forRoot(profile.EPHEMERAL_REDIS_URL),
         IdentityModule.forRoot(profile),
         MessagingModule.forRoot(profile),
+        RealtimeModule.forRoot(profile),
       ],
       controllers: [HealthController],
     };

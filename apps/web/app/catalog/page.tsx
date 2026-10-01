@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { useRealtimeInvalidation } from '../../lib/realtime/use-realtime-invalidation';
 import { StorefrontShell } from '../../components/storefront-shell';
 import { API_ORIGIN, CatalogList, CatalogProduct, formatUsd } from './catalog-types';
 import styles from './page.module.css';
@@ -85,8 +86,14 @@ export default function CatalogPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draftCategory, setDraftCategory] = useState(category);
   const [draftAvailability, setDraftAvailability] = useState<Availability>(availability);
+  const [refreshGeneration, setRefreshGeneration] = useState(0);
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const filterPanelRef = useRef<HTMLElement>(null);
+
+  const invalidate = useCallback((topics: string[]) => {
+    if (topics.includes('catalog')) setRefreshGeneration((value) => value + 1);
+  }, []);
+  useRealtimeInvalidation('public', invalidate);
 
   useEffect(() => {
     const nextSearch = searchParams.get('search') ?? '';
@@ -117,7 +124,7 @@ export default function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [submittedSearch, category, availability, sort, page]);
+  }, [submittedSearch, category, availability, sort, page, refreshGeneration]);
 
   useEffect(() => {
     if (!filtersOpen) return undefined;

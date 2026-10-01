@@ -24,6 +24,7 @@ export function buildContentSecurityPolicy(
   configuredApiOrigin?: string,
 ): string {
   const apiOrigin = safeApiOrigin(configuredApiOrigin ?? process.env.NEXT_PUBLIC_API_ORIGIN);
+  const realtimeOrigin = apiOrigin.replace(/^http:/u, 'ws:').replace(/^https:/u, 'wss:');
   return [
     "default-src 'self'",
     "base-uri 'self'",
@@ -33,7 +34,7 @@ export function buildContentSecurityPolicy(
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     `script-src 'self' 'nonce-${nonce}' https://js.stripe.com https://*.js.stripe.com${isDevelopment ? " 'unsafe-eval'" : ''}`,
-    `connect-src 'self' ${apiOrigin} https://api.stripe.com`,
+    `connect-src 'self' ${apiOrigin} ${realtimeOrigin} https://api.stripe.com`,
     'frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com',
     "form-action 'self'",
   ].join('; ');

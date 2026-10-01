@@ -15,6 +15,10 @@ import {
 } from '../generated/prisma/enums';
 import { IdempotencyService, type IdempotencyClaim } from '../idempotency/idempotency.service';
 import { AuditService } from '../audit/audit.service';
+import {
+  appendRealtimeInvalidation,
+  INVENTORY_INVALIDATED_EVENT,
+} from '../realtime/realtime.events';
 import { digestCartToken } from '../cart/cart-cookie';
 import { PaymentApplicationService } from '../payments/payment-application.service';
 import {
@@ -773,6 +777,14 @@ export class CheckoutService {
               actorId: cart.id,
               reason: 'checkout-reservation',
             },
+          });
+          await appendRealtimeInvalidation(tx, {
+            type: INVENTORY_INVALIDATED_EVENT,
+            aggregateType: 'inventory-balance',
+            resourceId: updated.id,
+            resourceVersion: updated.version,
+            correlationId: requestId,
+            causationId: claim.recordId,
           });
         }
         const reference = `PF-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`;

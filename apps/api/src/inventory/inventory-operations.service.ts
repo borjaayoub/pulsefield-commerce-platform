@@ -26,6 +26,11 @@ import type {
 import { InventoryOperationsQueryDto } from './inventory-operations.dto';
 import { INVENTORY_OPERATIONS_CURSOR_KEY } from './inventory-operations.constants';
 import { decodeInventoryCursor, encodeInventoryCursor } from './inventory-operations.read-support';
+import {
+  appendRealtimeInvalidation,
+  INVENTORY_INVALIDATED_EVENT,
+  TRANSFER_INVALIDATED_EVENT,
+} from '../realtime/realtime.events';
 
 type Writer = Prisma.TransactionClient;
 type Actor = { id: string; roles: RoleName[] };
@@ -213,6 +218,14 @@ export class InventoryOperationsService {
       },
       context(actor, `completed-${claim.recordId}`, reason, requestId),
     );
+    await appendRealtimeInvalidation(tx, {
+      type: result.transferId ? TRANSFER_INVALIDATED_EVENT : INVENTORY_INVALIDATED_EVENT,
+      aggregateType: result.transferId ? 'inventory-transfer' : 'inventory-balance',
+      resourceId: result.resourceId,
+      resourceVersion: result.version,
+      correlationId: requestId,
+      causationId: claim.recordId,
+    });
     await this.idempotency.complete(tx, claim, {
       type: result.type,
       id: saved.id,

@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { AuditService } from '../audit/audit.service';
+import {
+  appendRealtimeInvalidation,
+  FULFILLMENT_INVALIDATED_EVENT,
+  INVENTORY_INVALIDATED_EVENT,
+} from '../realtime/realtime.events';
 import { PrismaService } from '../database/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import {
@@ -233,6 +238,13 @@ export class PaymentOutcomeService {
           reason: succeeded ? 'payment-succeeded' : 'payment-failed',
         },
       });
+      await appendRealtimeInvalidation(tx, {
+        type: INVENTORY_INVALIDATED_EVENT,
+        aggregateType: 'inventory-balance',
+        resourceId: updated.id,
+        resourceVersion: updated.version,
+        correlationId: input.requestId,
+      });
     }
 
     const changed = await tx.paymentAttempt.updateMany({
@@ -268,6 +280,13 @@ export class PaymentOutcomeService {
               orderLineId: order.lines.find((line) => line.variantId === item.variantId)!.id,
               quantity: item.quantity,
             })),
+        });
+        await appendRealtimeInvalidation(tx, {
+          type: FULFILLMENT_INVALIDATED_EVENT,
+          aggregateType: 'fulfillment-group',
+          resourceId: group.id,
+          resourceVersion: group.version,
+          correlationId: input.requestId,
         });
       }
       await tx.cartItem.deleteMany({ where: { cartId: order.cartId } });

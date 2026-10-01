@@ -12,7 +12,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  transpilePackages: ['@pulse-field/design-tokens'],
+  transpilePackages: ['@pulse-field/design-tokens', '@pulse-field/contracts'],
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useRealtimeInvalidation } from '../../lib/realtime/use-realtime-invalidation';
 import { InventoryOperationsPanel } from './inventory-operations-panel';
 import { InventoryTransferPanel } from './inventory-transfer-panel';
 import { useInventoryCommand } from './use-inventory-command';
@@ -68,6 +69,23 @@ export default function OperationsPage() {
   const [transitionNotice, setTransitionNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const invalidate = useCallback(
+    (topics: string[]) => {
+      const topic =
+        section === 'inventory-low-stock'
+          ? 'low-stock'
+          : section === 'inventory-transfers'
+            ? 'transfers'
+            : section;
+      if (topics.includes(topic) || (section === 'inventory-reconciliation' && topics.includes('inventory-reconciliation'))) {
+        setCursor(undefined);
+        setPage(null);
+        setRefreshNonce((current) => current + 1);
+      }
+    },
+    [section],
+  );
+  useRealtimeInvalidation('staff', invalidate);
   const command = useInventoryCommand(
     () => {
       setPage(null);

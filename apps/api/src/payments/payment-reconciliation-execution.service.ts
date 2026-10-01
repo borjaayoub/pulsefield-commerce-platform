@@ -13,6 +13,11 @@ import {
 } from '../generated/prisma/enums';
 import { PaymentApplicationService } from './payment-application.service';
 import { PaymentOutcomeService } from './payment-outcome.service';
+import {
+  appendRealtimeInvalidation,
+  FULFILLMENT_INVALIDATED_EVENT,
+  INVENTORY_INVALIDATED_EVENT,
+} from '../realtime/realtime.events';
 import { decideAuthoritativePaymentReconciliation } from './payment-reconciliation';
 import {
   inventoryBalanceKey,
@@ -257,6 +262,13 @@ export class PaymentReconciliationExecutionService {
           reason: 'late-payment-re-reservation',
         },
       });
+      await appendRealtimeInvalidation(tx, {
+        type: INVENTORY_INVALIDATED_EVENT,
+        aggregateType: 'inventory-balance',
+        resourceId: reserved.id,
+        resourceVersion: reserved.version,
+        correlationId: requestId,
+      });
     }
     for (const [sequence, item] of allocationDecision.allocations.entries()) {
       const balance = allocationDecision.balancesByKey.get(
@@ -288,6 +300,13 @@ export class PaymentReconciliationExecutionService {
           reason: 'late-payment-committed',
         },
       });
+      await appendRealtimeInvalidation(tx, {
+        type: INVENTORY_INVALIDATED_EVENT,
+        aggregateType: 'inventory-balance',
+        resourceId: committed.id,
+        resourceVersion: committed.version,
+        correlationId: requestId,
+      });
     }
     await tx.inventoryReservation.update({
       where: { id: recovery.id },
@@ -313,6 +332,13 @@ export class PaymentReconciliationExecutionService {
           orderLineId: attempt.order.lines.find((line) => line.variantId === item.variantId)!.id,
           quantity: item.quantity,
         })),
+      });
+      await appendRealtimeInvalidation(tx, {
+        type: FULFILLMENT_INVALIDATED_EVENT,
+        aggregateType: 'fulfillment-group',
+        resourceId: group.id,
+        resourceVersion: group.version,
+        correlationId: requestId,
       });
     }
     await tx.cartItem.deleteMany({ where: { cartId: attempt.order.cartId } });

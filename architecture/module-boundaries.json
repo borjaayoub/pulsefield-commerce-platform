@@ -40,7 +40,7 @@
       "name": "web",
       "path": "apps/web",
       "package": "@pulse-field/web",
-      "allowedWorkspaceDependencies": ["@pulse-field/design-tokens"]
+      "allowedWorkspaceDependencies": ["@pulse-field/design-tokens", "@pulse-field/contracts"]
     }
   ],
   "forbiddenImports": {

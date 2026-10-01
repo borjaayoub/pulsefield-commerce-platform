@@ -32,6 +32,10 @@ export interface NewSession {
   sessionId: string;
   view: SessionView;
 }
+export interface SessionCapability {
+  roles: RoleName[];
+  authenticatedAt: number;
+}
 
 function view(record: SessionRecord, principal: AuthenticatedPrincipal): SessionView {
   return {
@@ -121,6 +125,36 @@ export class SessionService {
       credentialVersion: user.credentialVersion,
       mfaEnrolled: user.totpEnrolledAt !== null,
     });
+  }
+
+  /** Non-refreshing authorization read for long-lived transports. */
+  async currentCapability(sessionId: string): Promise<SessionCapability> {
+    const record = await this.store.peek(sessionId);
+    if (!record) throw new UnauthenticatedError();
+    const user = await this.prisma.user.findUnique({
+      where: { id: record.userId },
+      select: {
+        status: true,
+        credentialVersion: true,
+        totpEnrolledAt: true,
+        userRoles: { select: { role: true } },
+      },
+    });
+    const roles = user?.userRoles.map(({ role }) => role) ?? [];
+    const recent = Date.now() - record.authenticatedAt <= 10 * 60 * 1000;
+    if (
+      !user ||
+      user.status !== AccountStatus.ACTIVE ||
+      user.credentialVersion !== record.credentialVersion ||
+      roleFingerprint(roles) !== record.roleFingerprint ||
+      record.authenticationAssurance !== 'PASSWORD_MFA' ||
+      user.totpEnrolledAt === null ||
+      !recent
+    ) {
+      await this.store.revoke(sessionId);
+      throw new UnauthenticatedError();
+    }
+    return { roles, authenticatedAt: record.authenticatedAt };
   }
 
   async logout(sessionId: string | undefined, csrfToken: string | undefined): Promise<void> {

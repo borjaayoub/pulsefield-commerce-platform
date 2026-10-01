@@ -14,6 +14,10 @@ import {
 } from '../generated/prisma/enums';
 import { withCheckoutTransactionRetry } from '../checkout/checkout.service';
 import {
+  appendRealtimeInvalidation,
+  INVENTORY_INVALIDATED_EVENT,
+} from '../realtime/realtime.events';
+import {
   ReservationExpiryConflictError,
   ReservationExpirySweepError,
 } from './reservation-expiry.errors';
@@ -181,6 +185,13 @@ export class ReservationExpiryService {
               actorId: 'reservation-expiry-scheduler',
               reason: 'reservation-expired',
             },
+          });
+          await appendRealtimeInvalidation(tx, {
+            type: INVENTORY_INVALIDATED_EVENT,
+            aggregateType: 'inventory-balance',
+            resourceId: updated.id,
+            resourceVersion: updated.version,
+            correlationId: reservation.id,
           });
         }
 

@@ -18,6 +18,11 @@ import { ForbiddenError } from '../identity/authentication.errors';
 import { withCheckoutTransactionRetry } from '../checkout/checkout.service';
 import { FULFILLMENT_TARGET_STATUSES } from './fulfillment.dto';
 import { FulfillmentConflictError, FulfillmentRequestError } from './fulfillment.errors';
+import {
+  appendRealtimeInvalidation,
+  FULFILLMENT_INVALIDATED_EVENT,
+  INVENTORY_INVALIDATED_EVENT,
+} from '../realtime/realtime.events';
 
 const CARRIER_PATTERN = /^[A-Z0-9][A-Z0-9_-]{1,31}$/u;
 const TRACKING_PATTERN = /^[A-Z0-9][A-Z0-9._-]{5,63}$/u;
@@ -409,6 +414,33 @@ export class FulfillmentService {
             causationId: command.requestId,
           },
         });
+        await appendRealtimeInvalidation(tx, {
+          type: FULFILLMENT_INVALIDATED_EVENT,
+          aggregateType: 'fulfillment-group',
+          resourceId: group.id,
+          resourceVersion: nextVersion,
+          correlationId: command.correlationId,
+          causationId: command.requestId,
+        });
+        if (input.targetStatus === FulfillmentGroupStatus.SHIPPED) {
+          const balances = await tx.inventoryBalance.findMany({
+            where: {
+              warehouseId: group.warehouseId,
+              variantId: { in: group.items.map((item) => item.orderLine.variantId) },
+            },
+            select: { id: true, version: true },
+          });
+          for (const balance of balances) {
+            await appendRealtimeInvalidation(tx, {
+              type: INVENTORY_INVALIDATED_EVENT,
+              aggregateType: 'inventory-balance',
+              resourceId: balance.id,
+              resourceVersion: balance.version,
+              correlationId: command.correlationId,
+              causationId: command.requestId,
+            });
+          }
+        }
         await this.idempotency.complete(tx, claim, {
           type: 'fulfillment-transition',
           id: result.id,
