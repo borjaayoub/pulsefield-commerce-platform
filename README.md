@@ -6,7 +6,60 @@ This repository is a portfolio-grade, modular e-commerce platform built in demon
 
 Phases 1–5 are complete. The user closed Phase 5 on 2026-10-01 with visual review deferred; this does not imply visual approval. Concurrency, live browser recovery and multiple API-process acceptance pass. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for dated evidence and the recorded sign-off.
 
-The protected Phase 3 operations dashboard is available at `/operations` after staff password and local TOTP MFA authentication. It uses masked, read-only projections; only fulfillers can advance the existing fulfillment path. Checkout defaults to the non-networked stub and seeded `US-EAST-01` warehouse; no Stripe or hosted payment service is required. Optional Stripe mode is test-only: it mounts the embedded Payment Element after server-owned checkout preparation, and only the verified asynchronous webhook/reconciliation path may confirm payment. Checkout collects an order-contact email, links guests to a digest-protected expiring timeline, and delivers confirmation only through the encrypted local Mailpit workflow after authoritative order confirmation.
+Phase 6 Slices 6.1–6.4b provide regional storefront shopping and authoritative checkout
+for US/USD, Morocco/MAD, EU/EUR and UK/GBP. Fixed price books, simulated tax,
+versioned shipping and exact warehouse routes determine original charges;
+immutable order snapshots retain separate USD reporting evidence. Catalog accepts
+`market=US|MA|EU|UK`; cart selection requires repricing and explicit confirmation.
+Checkout validates the destination against that confirmed market. Four-market
+acceptance uses the local payment stub; Stripe test-mode remains US/USD only.
+Historical US orders and committed replay remain compatible. The storefront carries
+browsing selection through market query links/search and formats the API currency.
+Product/cart changes and checkout destination mismatches require full repricing
+review and explicit confirmation. Uncertain checkout attempts lock their inputs and
+retry the exact body, revision and key in the open page; keep it open until the
+outcome is known. Public pages include regional canonical/OpenGraph metadata and
+English country alternates; product HTML and Product/Offer JSON-LD share the API
+snapshot. The sitemap includes public market pages only. Local pages remain
+noindex/nofollow and robots disallow-all; visual approval is separate.
+
+Phase 6.5 functional acceptance passed on 2026-10-05: quality (104 suites / 778
+tests and all builds), full PostgreSQL integration (24 suites / 236 tests), 23
+browser checks, synthetic forward migration preserving legacy USD orders/replay,
+and four regional HTTP checkout/replay journeys with captured local confirmations.
+Manual visual sign-off and formal phase closure remain pending.
+
+Run `pnpm quality`, then `node scripts/run-phase6-browser-acceptance.mjs` for
+regional storefront and SEO acceptance. The latter requires local PostgreSQL/Redis, current
+builds and free ports 3000/4000; it owns both application processes, a fresh guarded
+`phase64_browser_<random>_test` database and an empty Redis database without flushing.
+It tests JavaScript-disabled product pages and an actual owned API outage, retains
+test data, stops its processes and never migrates/seeds development. See the
+[environment reference](docs/environment.md#regional-seo-server-connection) for
+the server catalog connection and public URL origin.
+
+For complete Phase 6 functional acceptance, run these commands from the repository
+root with local PostgreSQL, ephemeral Redis and Mailpit available:
+
+```powershell
+pnpm quality
+node scripts/phase6/integration.mjs
+node scripts/phase6/forward-migration.mjs
+node scripts/phase6/http-mailpit.mjs
+node scripts/run-phase6-browser-acceptance.mjs
+```
+
+The integration and forward-migration commands each create a fresh guarded local
+`_test` database. HTTP/Mailpit uses the successful forward rehearsal's retained
+target from `.local/acceptance/phase65-forward-result.json`, with an empty local
+Redis database selected without flushing. It verifies four stub checkout/replay
+journeys and captured confirmations through direct relay/processor invocation;
+it does not test BullMQ transport recovery. The predecessor rehearsal is synthetic,
+using committed legacy checkout code and temporary client compatibility columns;
+it is not a production backup restore. All tools retain test data and never
+migrate/reset/seed development. Manual visual sign-off remains separate.
+
+The protected Phase 3 operations dashboard is available at `/operations` after staff password and local TOTP MFA authentication. It uses masked, read-only projections; only fulfillers can advance the existing fulfillment path. Checkout defaults to the non-networked stub and the selected market’s configured warehouse route; no Stripe or hosted payment service is required. Optional Stripe mode is test-only: it mounts the embedded Payment Element after server-owned checkout preparation, and only the verified asynchronous webhook/reconciliation path may confirm payment. Checkout collects an order-contact email, links guests to a digest-protected expiring timeline, and delivers confirmation only through the encrypted local Mailpit workflow after authoritative order confirmation.
 
 The storefront uses a light, responsive presentation across the homepage,
 catalog, product detail, cart, active checkout form, and guest order timeline.
