@@ -1,5 +1,6 @@
 import {
   checkoutRequestBody,
+  checkoutRequiresNewPreview,
   guestOrderUrl,
   safePaymentErrorMessage,
   stripeReturnUrl,
@@ -19,6 +20,7 @@ const address = {
 function preview(paymentProvider: CheckoutPreview['paymentProvider']): CheckoutPreview {
   return {
     paymentProvider,
+    currency: 'USD',
     subtotalMinor: 1000,
     shippingMinor: 0,
     taxMinor: 80,
@@ -29,6 +31,22 @@ function preview(paymentProvider: CheckoutPreview['paymentProvider']): CheckoutP
 }
 
 describe('checkout payment browser boundary', () => {
+  it('keeps uncertain or pending outcomes bound to the original request and key', () => {
+    for (const [status, code] of [
+      [503, 'CHECKOUT_TEMPORARILY_UNAVAILABLE'],
+      [409, 'CHECKOUT_IN_PROGRESS'],
+      [409, 'CART_CHECKOUT_PENDING'],
+      [409, 'IDEMPOTENCY_KEY_CONFLICT'],
+      [408, undefined],
+      [429, undefined],
+      [500, undefined],
+      [409, 'UNKNOWN'],
+    ] as const) {
+      expect(checkoutRequiresNewPreview(status, code)).toBe(false);
+    }
+    expect(checkoutRequiresNewPreview(409, 'PRICING_FINGERPRINT_CONFLICT')).toBe(true);
+    expect(checkoutRequiresNewPreview(409, 'CART_REVISION_CONFLICT')).toBe(true);
+  });
   it('sends a stub outcome only when the server selected the stub provider', () => {
     expect(
       checkoutRequestBody(address, 'customer@example.test', preview('stub'), 'stub-decline'),

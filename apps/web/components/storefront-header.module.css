@@ -171,3 +171,30 @@
       border-color 160ms ease;
   }
 }
+
+.market {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+}
+.market select {
+  max-width: 11rem;
+  min-height: 2.75rem;
+  font: inherit;
+  background: var(--storefront-canvas);
+  color: inherit;
+  border: 1px solid currentColor;
+}
+@media (max-width: 520px) {
+  .inner {
+    flex-wrap: wrap;
+    padding-block: 0.5rem;
+    gap: 0.5rem;
+  }
+  .actions {
+    margin-left: auto;
+  }
+  .market select {
+    max-width: 8rem;
+  }
+}

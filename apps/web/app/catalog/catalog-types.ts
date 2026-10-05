@@ -1,15 +1,18 @@
+import type { InternationalMarketCode, SupportedCurrency } from '@pulse-field/contracts';
 export interface CatalogVariant {
   id: string;
   sku: string;
   name: string;
   optionValues: Record<string, string>;
   priceMinor: number;
-  currency: 'USD';
+  currency: SupportedCurrency;
   available: number;
   inStock: boolean;
 }
 
 export interface CatalogProduct {
+  market: InternationalMarketCode;
+  taxTreatment: 'exclusive';
   id: string;
   slug: string;
   name: string;
@@ -19,7 +22,7 @@ export interface CatalogProduct {
   variants: CatalogVariant[];
   available: number;
   inStock: boolean;
-  currency: 'USD';
+  currency: SupportedCurrency;
 }
 
 export interface CatalogList {

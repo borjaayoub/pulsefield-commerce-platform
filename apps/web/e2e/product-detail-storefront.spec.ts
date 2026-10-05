@@ -1,30 +1,20 @@
 import { expect, test } from '@playwright/test';
-import { catalogFixture } from './catalog-fixture';
 
 test.describe('product-detail storefront', () => {
   test('selects a server-provided in-stock variant for the existing cart flow', async ({
     page,
   }) => {
-    const product = catalogFixture.items[0];
-    await page.route('**/api/v1/catalog/products/motion-tee', async (route) => {
-      await route.fulfill({ contentType: 'application/json', json: product });
-    });
+    await page.goto('/catalog/aero-tempo-tee?market=US');
 
-    await page.goto('/catalog/motion-tee');
-
-    await expect(page.getByRole('heading', { name: 'Motion Tee' })).toBeVisible();
-    await expect(page.locator('main').getByText('Training', { exact: true })).toBeVisible();
-    await expect(page.getByLabel('Black / M')).toBeChecked();
+    await expect(page.getByRole('heading', { name: 'Aero Tempo Tee' })).toBeVisible();
+    await expect(page.locator('main').getByText('Running', { exact: true })).toBeVisible();
+    await expect(page.locator('input[name="variant"]:checked')).toHaveCount(1);
     await expect(page.getByRole('button', { name: /Add to cart/i })).toBeEnabled();
   });
 
   test('keeps product purchase controls within a small viewport', async ({ page }) => {
-    const product = catalogFixture.items[0];
-    await page.route('**/api/v1/catalog/products/motion-tee', async (route) => {
-      await route.fulfill({ contentType: 'application/json', json: product });
-    });
     await page.setViewportSize({ width: 320, height: 800 });
-    await page.goto('/catalog/motion-tee');
+    await page.goto('/catalog/aero-tempo-tee?market=US');
 
     await expect(page.getByRole('button', { name: /Add to cart/i })).toBeVisible();
     const dimensions = await page.locator('body').evaluate((element) => ({

@@ -9,11 +9,14 @@ import {
   cartQuantityLimit,
   cartUrl,
   clampCartQuantity,
-  formatUsd,
 } from './cart-types';
 import styles from './page.module.css';
+import { MARKETS, MARKET_LABELS, formatMoney, marketUrl } from '../../lib/market';
+import type { InternationalMarketCode } from '@pulse-field/contracts';
+import { CartMarketReview } from '../../components/cart-market-review';
 
 export default function CartPage() {
+  const [targetMarket, setTargetMarket] = useState<InternationalMarketCode | null>(null);
   const [cart, setCart] = useState<Cart | null>(null);
   const [etag, setEtag] = useState<string | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -166,10 +169,12 @@ export default function CartPage() {
     <StorefrontShell>
       <main className={styles.page}>
         <header className={styles.header}>
-          <Link href="/catalog" className={styles.backLink}>
+          <Link href={marketUrl('/catalog', cart?.market ?? 'US')} className={styles.backLink}>
             ← Continue shopping
           </Link>
-          <p className={styles.eyebrow}>Your selection / United States · USD</p>
+          <p className={styles.eyebrow}>
+            Your selection / {cart ? MARKET_LABELS[cart.market] : ''}
+          </p>
           <h1>Your cart</h1>
           {cart?.items.length ? (
             <p>
@@ -182,11 +187,56 @@ export default function CartPage() {
             {message}
           </p>
         ) : null}
+        {cart && etag ? (
+          <>
+            <label>
+              Cart market{' '}
+              <select
+                aria-label="Cart market"
+                value={targetMarket ?? cart.market}
+                disabled={pendingVariantId !== null || targetMarket !== null}
+                onChange={(event) => setTargetMarket(event.target.value as InternationalMarketCode)}
+              >
+                {MARKETS.map((market) => (
+                  <option key={market} value={market}>
+                    {MARKET_LABELS[market]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p>Prices exclude simulated tax.</p>
+            {targetMarket ? (
+              <CartMarketReview
+                market={targetMarket}
+                etag={etag}
+                onCancel={() => {
+                  setTargetMarket(null);
+                  void load();
+                }}
+                onConfirmed={(next, nextEtag) => {
+                  setTargetMarket(null);
+                  window.history.replaceState(
+                    null,
+                    '',
+                    marketUrl(window.location.pathname + window.location.search, next.market),
+                  );
+                  setCart(next);
+                  setEtag(nextEtag);
+                  setQuantityDrafts(
+                    Object.fromEntries(
+                      next.items.map((item) => [item.variantId, String(item.quantity)]),
+                    ),
+                  );
+                }}
+              />
+            ) : null}
+          </>
+        ) : null}
         {!cart || cart.items.length === 0 ? (
           <section className="state">
             <h2>Your cart is clear.</h2>
             <p>Choose a piece from the local catalog to begin.</p>
-            <Link href="/catalog" className="text-link">
+            <Link href={marketUrl('/catalog', cart?.market ?? 'US')} className="text-link">
               Browse catalog →
             </Link>
           </section>
@@ -222,7 +272,11 @@ export default function CartPage() {
                           max={Math.max(1, cartQuantityLimit(item.available))}
                           value={quantityDrafts[item.variantId] ?? String(item.quantity)}
                           aria-describedby={message ? 'cart-status' : undefined}
-                          disabled={!canAdjustCartQuantity(item) || pendingVariantId !== null}
+                          disabled={
+                            !canAdjustCartQuantity(item) ||
+                            pendingVariantId !== null ||
+                            targetMarket !== null
+                          }
                           onChange={(event) =>
                             setQuantityDrafts((current) => ({
                               ...current,
@@ -232,7 +286,11 @@ export default function CartPage() {
                         />
                         <button
                           type="button"
-                          disabled={!canAdjustCartQuantity(item) || pendingVariantId !== null}
+                          disabled={
+                            !canAdjustCartQuantity(item) ||
+                            pendingVariantId !== null ||
+                            targetMarket !== null
+                          }
                           onClick={() => void updateQuantity(item.variantId)}
                         >
                           {pendingVariantId === item.variantId ? 'Updating…' : 'Update'}
@@ -249,11 +307,11 @@ export default function CartPage() {
                     {item.currentLinePriceMinor === null ? (
                       <span className="availability unavailable">Unavailable</span>
                     ) : (
-                      formatUsd(item.currentLinePriceMinor)
+                      formatMoney(item.currentLinePriceMinor, item.currency)
                     )}
                     <button
                       type="button"
-                      disabled={pendingVariantId !== null}
+                      disabled={pendingVariantId !== null || targetMarket !== null}
                       onClick={() => void remove(item.variantId)}
                     >
                       {pendingVariantId === item.variantId ? 'Updating…' : 'Remove'}
@@ -264,18 +322,20 @@ export default function CartPage() {
             </div>
             <aside className="cart-summary">
               <p className="eyebrow">Server total</p>
-              <h2>{cart.totalMinor === null ? '—' : formatUsd(cart.totalMinor)}</h2>
+              <h2>
+                {cart.totalMinor === null ? '—' : formatMoney(cart.totalMinor, cart.currency)}
+              </h2>
               {cart.hasUnavailableItems ? (
                 <p className="availability unavailable">
                   Remove unavailable items before checkout becomes available.
                 </p>
               ) : null}
               <Link
-                href="/checkout"
+                href={marketUrl('/checkout', cart.market)}
                 className="text-link"
-                aria-disabled={cart.hasUnavailableItems}
+                aria-disabled={cart.hasUnavailableItems || targetMarket !== null}
                 onClick={(event) => {
-                  if (cart.hasUnavailableItems) event.preventDefault();
+                  if (cart.hasUnavailableItems || targetMarket) event.preventDefault();
                 }}
               >
                 Continue to checkout →

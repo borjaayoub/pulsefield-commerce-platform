@@ -157,6 +157,8 @@ services:
       target: web
     environment:
       NODE_ENV: production
+      CATALOG_API_ORIGIN: http://api:4000
+      WEB_ORIGIN: http://localhost:3000
     command: ['pnpm', '--filter', '@pulse-field/web', 'exec', 'next', 'start', '-H', '0.0.0.0']
     depends_on:
       api:

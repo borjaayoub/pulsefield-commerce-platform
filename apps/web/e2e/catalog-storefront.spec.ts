@@ -12,7 +12,7 @@ test.describe('catalog storefront', () => {
     await expect(page.getByText('4 products')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Motion Tee' })).toHaveAttribute(
       'href',
-      '/catalog/motion-tee',
+      '/catalog/motion-tee?market=US',
     );
 
     await page.getByRole('button', { name: 'Filters' }).click();

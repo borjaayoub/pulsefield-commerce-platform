@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { MARKETS, MARKET_LABELS, marketUrl, parseMarket } from '../lib/market';
 import { useEffect, useRef, useState } from 'react';
 import styles from './storefront-header.module.css';
 
@@ -12,6 +14,10 @@ const primaryLinks = [
 ];
 
 export function StorefrontHeader() {
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const market = parseMarket(searchParams.get('market'));
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -31,12 +37,12 @@ export function StorefrontHeader() {
   return (
     <header className={styles.header}>
       <div className={styles.inner}>
-        <Link className={styles.wordmark} href="/">
+        <Link className={styles.wordmark} href={marketUrl('/', market)}>
           PULSE//FIELD
         </Link>
         <nav aria-label="Storefront" className={styles.desktopNav}>
           {primaryLinks.map((link) => (
-            <Link href={link.href} key={link.href}>
+            <Link href={marketUrl(link.href, market)} key={link.href}>
               {link.label}
             </Link>
           ))}
@@ -45,10 +51,34 @@ export function StorefrontHeader() {
           <label className="sr-only" htmlFor="storefront-search">
             Search products
           </label>
+          <input type="hidden" name="market" value={market} />
           <input id="storefront-search" name="search" placeholder="Search products" type="search" />
         </form>
         <div className={styles.actions}>
-          <Link className={styles.cartLink} href="/cart">
+          <label className={styles.market}>
+            Market
+            <select
+              aria-label="Browsing market"
+              value={market}
+              onChange={(event) =>
+                router.push(
+                  marketUrl(
+                    pathname.startsWith('/catalog') || pathname === '/'
+                      ? pathname + '?' + searchParams.toString()
+                      : '/catalog',
+                    parseMarket(event.target.value),
+                  ),
+                )
+              }
+            >
+              {MARKETS.map((code) => (
+                <option key={code} value={code}>
+                  {MARKET_LABELS[code]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Link className={styles.cartLink} href={marketUrl('/cart', market)}>
             Cart
           </Link>
           <button
@@ -70,7 +100,11 @@ export function StorefrontHeader() {
         id="storefront-mobile-navigation"
       >
         {primaryLinks.map((link) => (
-          <Link href={link.href} key={link.href} onClick={() => setIsMenuOpen(false)}>
+          <Link
+            href={marketUrl(link.href, market)}
+            key={link.href}
+            onClick={() => setIsMenuOpen(false)}
+          >
             {link.label}
           </Link>
         ))}

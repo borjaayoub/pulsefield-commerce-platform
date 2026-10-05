@@ -22,6 +22,8 @@ export const catalogFixture = {
       available: 8,
       inStock: true,
       currency: 'USD',
+      market: 'US',
+      taxTreatment: 'exclusive',
     },
     {
       id: 'pace-short',
@@ -45,6 +47,8 @@ export const catalogFixture = {
       available: 5,
       inStock: true,
       currency: 'USD',
+      market: 'US',
+      taxTreatment: 'exclusive',
     },
     {
       id: 'ridge-shell',
@@ -68,6 +72,8 @@ export const catalogFixture = {
       available: 2,
       inStock: true,
       currency: 'USD',
+      market: 'US',
+      taxTreatment: 'exclusive',
     },
     {
       id: 'daily-layer',
@@ -91,6 +97,8 @@ export const catalogFixture = {
       available: 0,
       inStock: false,
       currency: 'USD',
+      market: 'US',
+      taxTreatment: 'exclusive',
     },
   ],
   page: 1,

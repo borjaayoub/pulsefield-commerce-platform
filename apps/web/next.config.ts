@@ -12,6 +12,8 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Local SEO rehearsal uses complete head metadata and deterministic redirects/404s.
+  htmlLimitedBots: /.*/,
   transpilePackages: ['@pulse-field/design-tokens', '@pulse-field/contracts'],
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];

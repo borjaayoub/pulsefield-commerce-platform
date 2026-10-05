@@ -13,24 +13,24 @@ test.describe('homepage storefront', () => {
     ).toBeVisible();
     await expect(page.getByRole('link', { name: /Shop new arrivals/i })).toHaveAttribute(
       'href',
-      '/catalog?sort=newest',
+      '/catalog?sort=newest&market=US',
     );
     await expect(page.getByRole('heading', { name: 'New arrivals' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Motion Tee', exact: true })).toHaveAttribute(
       'href',
-      '/catalog/motion-tee',
+      '/catalog/motion-tee?market=US',
     );
     await expect(page.getByRole('link', { name: /Training Build strength/i })).toHaveAttribute(
       'href',
-      '/catalog?category=training',
+      '/catalog?category=training&market=US',
     );
     await expect(page.getByRole('link', { name: /Running Find the rhythm/i })).toHaveAttribute(
       'href',
-      '/catalog?category=running',
+      '/catalog?category=running&market=US',
     );
     await expect(page.getByRole('link', { name: /Trail Move farther/i })).toHaveAttribute(
       'href',
-      '/catalog?category=trail',
+      '/catalog?category=trail&market=US',
     );
   });
 

@@ -13,6 +13,8 @@ test.describe('cart storefront', () => {
         },
         json: {
           revision: 2,
+          market: 'US',
+          taxTreatment: 'exclusive',
           currency: 'USD',
           subtotalMinor: 4800,
           totalMinor: 4800,
@@ -49,7 +51,7 @@ test.describe('cart storefront', () => {
     await expect(page.getByRole('img', { name: 'Black Motion Tee' })).toBeVisible();
     await expect(page.getByRole('link', { name: /Continue to checkout/i })).toHaveAttribute(
       'href',
-      '/checkout',
+      '/checkout?market=US',
     );
   });
 });

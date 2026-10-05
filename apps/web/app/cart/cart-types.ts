@@ -1,3 +1,4 @@
+import type { InternationalMarketCode, SupportedCurrency } from '@pulse-field/contracts';
 import { API_ORIGIN, formatUsd } from '../catalog/catalog-types';
 
 export interface CartItem {
@@ -11,15 +12,17 @@ export interface CartItem {
   quantity: number;
   currentUnitPriceMinor: number | null;
   currentLinePriceMinor: number | null;
-  currency: 'USD';
+  currency: SupportedCurrency;
   available: number;
   purchasable: boolean;
   media: { url: string; altText: string; width: number; height: number } | null;
 }
 
 export interface Cart {
+  market: InternationalMarketCode;
+  taxTreatment: 'exclusive';
   revision: number;
-  currency: 'USD';
+  currency: SupportedCurrency;
   subtotalMinor: number | null;
   totalMinor: number | null;
   hasUnavailableItems: boolean;

@@ -1,13 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { formatMoney, marketUrl, parseMarket } from '../lib/market';
 import { useEffect, useState } from 'react';
-import {
-  API_ORIGIN,
-  type CatalogList,
-  type CatalogProduct,
-  formatUsd,
-} from '../app/catalog/catalog-types';
+import { API_ORIGIN, type CatalogList, type CatalogProduct } from '../app/catalog/catalog-types';
 import styles from './homepage-storefront.module.css';
 
 const PURPOSES = [
@@ -40,7 +37,9 @@ function productPrice(product: CatalogProduct): string {
     Number.POSITIVE_INFINITY,
   );
 
-  return Number.isFinite(lowestPrice) ? formatUsd(lowestPrice) : 'Price unavailable';
+  return Number.isFinite(lowestPrice)
+    ? formatMoney(lowestPrice, product.currency)
+    : 'Price unavailable';
 }
 
 function ProductCard({ product }: Readonly<{ product: CatalogProduct }>) {
@@ -49,7 +48,10 @@ function ProductCard({ product }: Readonly<{ product: CatalogProduct }>) {
 
   return (
     <article className={styles.productCard}>
-      <Link href={`/catalog/${product.slug}`} className={styles.productImageLink}>
+      <Link
+        href={marketUrl(`/catalog/${product.slug}`, product.market)}
+        className={styles.productImageLink}
+      >
         {primaryMedia ? (
           <img src={primaryMedia.url} alt={primaryMedia.altText} className={styles.productImage} />
         ) : (
@@ -61,8 +63,9 @@ function ProductCard({ product }: Readonly<{ product: CatalogProduct }>) {
       <div className={styles.productDetails}>
         <p className={styles.productCategory}>{categoryName}</p>
         <h3>
-          <Link href={`/catalog/${product.slug}`}>{product.name}</Link>
+          <Link href={marketUrl(`/catalog/${product.slug}`, product.market)}>{product.name}</Link>
         </h3>
+        <p>Prices exclude simulated tax.</p>
         <p className={styles.productPrice}>{productPrice(product)}</p>
       </div>
     </article>
@@ -80,16 +83,19 @@ function ProductLoadingGrid() {
 }
 
 export function HomepageStorefront() {
+  const market = parseMarket(useSearchParams().get('market'));
   const [catalog, setCatalog] = useState<CatalogList | null>(null);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
+    setCatalog(null);
+    setLoadError(false);
 
     async function loadCatalog() {
       try {
         const response = await fetch(
-          `${API_ORIGIN}/api/v1/catalog/products?pageSize=12&sort=newest`,
+          `${API_ORIGIN}/api/v1/catalog/products?pageSize=12&sort=newest&market=${market}`,
           {
             signal: controller.signal,
           },
@@ -109,7 +115,7 @@ export function HomepageStorefront() {
 
     void loadCatalog();
     return () => controller.abort();
-  }, []);
+  }, [market]);
 
   const currentSelection = catalog?.items.slice(0, 4) ?? [];
   const featuredProduct = catalog?.items.find((product) => product.inStock) ?? catalog?.items[0];
@@ -122,10 +128,13 @@ export function HomepageStorefront() {
           <h1 id="homepage-title">Built for the work between goals.</h1>
           <p>Technical essentials designed for movement, repetition, and everyday performance.</p>
           <div className={styles.heroActions}>
-            <Link href="/catalog?sort=newest" className={styles.primaryAction}>
+            <Link href={marketUrl('/catalog?sort=newest', market)} className={styles.primaryAction}>
               Shop new arrivals <span aria-hidden="true">→</span>
             </Link>
-            <Link href="/catalog?category=training" className={styles.secondaryAction}>
+            <Link
+              href={marketUrl('/catalog?category=training', market)}
+              className={styles.secondaryAction}
+            >
               Explore training
             </Link>
           </div>
@@ -143,7 +152,7 @@ export function HomepageStorefront() {
             <p className={styles.eyebrow}>Current selection</p>
             <h2 id="arrivals-heading">New arrivals</h2>
           </div>
-          <Link href="/catalog?sort=newest" className={styles.textAction}>
+          <Link href={marketUrl('/catalog?sort=newest', market)} className={styles.textAction}>
             View all <span aria-hidden="true">→</span>
           </Link>
         </div>
@@ -159,7 +168,8 @@ export function HomepageStorefront() {
           )
         ) : loadError ? (
           <p className={styles.catalogMessage}>
-            The catalog is unavailable right now. <Link href="/catalog">Browse the catalog</Link>.
+            The catalog is unavailable right now.{' '}
+            <Link href={marketUrl('/catalog', market)}>Browse the catalog</Link>.
           </p>
         ) : (
           <ProductLoadingGrid />
@@ -175,7 +185,11 @@ export function HomepageStorefront() {
         </div>
         <div className={styles.purposeGrid}>
           {PURPOSES.map((purpose) => (
-            <Link href={purpose.href} key={purpose.name} className={styles.purposeCard}>
+            <Link
+              href={marketUrl(purpose.href, market)}
+              key={purpose.name}
+              className={styles.purposeCard}
+            >
               <img src={purpose.image} alt={purpose.alt} />
               <span className={styles.purposeOverlay}>
                 <span>
@@ -199,7 +213,7 @@ export function HomepageStorefront() {
             From training sessions to the commute home, every piece is selected for a focused,
             capable routine.
           </p>
-          <Link href="/catalog" className={styles.secondaryAction}>
+          <Link href={marketUrl('/catalog', market)} className={styles.secondaryAction}>
             Explore the collection <span aria-hidden="true">→</span>
           </Link>
         </div>
@@ -220,7 +234,10 @@ export function HomepageStorefront() {
               <p className={styles.eyebrow}>Featured product</p>
               <h3>{featuredProduct.name}</h3>
               <p>{productPrice(featuredProduct)}</p>
-              <Link href={`/catalog/${featuredProduct.slug}`} className={styles.textAction}>
+              <Link
+                href={marketUrl(`/catalog/${featuredProduct.slug}`, market)}
+                className={styles.textAction}
+              >
                 View product <span aria-hidden="true">→</span>
               </Link>
             </div>

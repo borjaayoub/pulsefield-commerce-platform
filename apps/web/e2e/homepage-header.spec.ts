@@ -21,26 +21,29 @@ test.describe('homepage storefront header', () => {
     await page.waitForTimeout(200);
 
     const header = page.locator('header');
-    await expect(header.getByRole('link', { name: 'PULSE//FIELD' })).toHaveAttribute('href', '/');
+    await expect(header.getByRole('link', { name: 'PULSE//FIELD' })).toHaveAttribute(
+      'href',
+      '/?market=US',
+    );
     await expect(header.getByRole('link', { name: 'Shop' }).first()).toHaveAttribute(
       'href',
-      '/catalog',
+      '/catalog?market=US',
     );
     await expect(header.getByRole('link', { name: 'Running' }).first()).toHaveAttribute(
       'href',
-      '/catalog?category=running',
+      '/catalog?category=running&market=US',
     );
     await expect(header.getByRole('link', { name: 'Trail' }).first()).toHaveAttribute(
       'href',
-      '/catalog?category=trail',
+      '/catalog?category=trail&market=US',
     );
     await expect(header.getByRole('link', { name: 'Training' }).first()).toHaveAttribute(
       'href',
-      '/catalog?category=training',
+      '/catalog?category=training&market=US',
     );
     await expect(header.getByRole('link', { name: 'Cart' }).first()).toHaveAttribute(
       'href',
-      '/cart',
+      '/cart?market=US',
     );
     await expect(header.getByRole('searchbox', { name: 'Search products' })).toHaveAttribute(
       'name',

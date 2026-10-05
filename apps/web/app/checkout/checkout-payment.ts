@@ -1,5 +1,23 @@
+import type { SupportedCurrency, InternationalMarketCode } from '@pulse-field/contracts';
+import type { Destination } from '../../lib/market';
 export type CheckoutPaymentProvider = 'stub' | 'stripe';
 export type StubPaymentChoice = 'stub-success' | 'stub-decline';
+
+/** Only known pre-order rejection evidence permits replacing the request/key. */
+export function checkoutRequiresNewPreview(status: number, code: string | undefined): boolean {
+  return (
+    status >= 400 &&
+    status < 500 &&
+    [
+      'CART_REVISION_CONFLICT',
+      'PRICING_FINGERPRINT_CONFLICT',
+      'CART_MARKET_MISMATCH',
+      'CART_ITEM_UNAVAILABLE',
+      'INSUFFICIENT_STOCK',
+      'CHECKOUT_REQUEST_INVALID',
+    ].includes(code ?? '')
+  );
+}
 
 export type ShippingAddress = {
   fullName: string;
@@ -8,10 +26,12 @@ export type ShippingAddress = {
   city: string;
   state: string;
   postalCode: string;
-  countryCode: 'US';
+  countryCode: Destination;
 };
 
 export type CheckoutPreview = {
+  currency: SupportedCurrency;
+  market?: InternationalMarketCode;
   paymentProvider: CheckoutPaymentProvider;
   subtotalMinor: number;
   shippingMinor: number;

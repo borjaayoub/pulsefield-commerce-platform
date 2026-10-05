@@ -2,12 +2,13 @@
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { API_ORIGIN } from '../catalog/catalog-types';
 import { StorefrontShell } from '../../components/storefront-shell';
-import { cartUrl, formatUsd, type Cart } from '../cart/cart-types';
+import { cartUrl, type Cart } from '../cart/cart-types';
 import {
   checkoutRequestBody,
+  checkoutRequiresNewPreview,
   guestOrderUrl,
   type CheckoutPreview,
   type CheckoutResult,
@@ -15,6 +16,16 @@ import {
   type StubPaymentChoice,
 } from './checkout-payment';
 import styles from './page.module.css';
+import {
+  DESTINATIONS,
+  destinationMarket,
+  formatMoney,
+  marketUrl,
+  MARKET_LABELS,
+  type Destination,
+} from '../../lib/market';
+import { CartMarketReview } from '../../components/cart-market-review';
+import type { InternationalMarketCode } from '@pulse-field/contracts';
 
 const StripePaymentStep = dynamic(() => import('./stripe-payment-step'), {
   ssr: false,
@@ -43,6 +54,11 @@ function newIdempotencyKey(): string {
 }
 
 export default function CheckoutPage() {
+  const [targetMarket, setTargetMarket] = useState<InternationalMarketCode | null>(null);
+  const destinationInitialized = useRef(false);
+  const attempt = useRef<{ body: string; etag: string; key: string } | null>(null);
+  const [retryLocked, setRetryLocked] = useState(false);
+  const [previewPending, setPreviewPending] = useState(false);
   const [cart, setCart] = useState<Cart | null>(null);
   const [etag, setEtag] = useState<string | null>(null);
   const [address, setAddress] = useState(blankAddress);
@@ -63,7 +79,15 @@ export default function CheckoutPage() {
         headers: { Accept: 'application/json' },
       });
       if (!response.ok) throw new Error('CART');
-      setCart((await response.json()) as Cart);
+      const loaded = (await response.json()) as Cart;
+      setCart(loaded);
+      if (!destinationInitialized.current)
+        setAddress((current) => ({
+          ...current,
+          countryCode:
+            loaded.market === 'UK' ? 'GB' : loaded.market === 'EU' ? 'DE' : loaded.market,
+        }));
+      destinationInitialized.current = true;
       setEtag(response.headers.get('etag'));
       setState('ready');
     } catch {
@@ -87,11 +111,18 @@ export default function CheckoutPage() {
   };
   async function requestPreview(event: FormEvent) {
     event.preventDefault();
+    if (retryLocked || previewPending) return;
+    setPreview(null);
     setMessage('');
     if (!etag) {
       setMessage('Refresh the current cart before previewing checkout.');
       return;
     }
+    if (cart && destinationMarket(address.countryCode) !== cart.market) {
+      setTargetMarket(destinationMarket(address.countryCode));
+      return;
+    }
+    setPreviewPending(true);
     try {
       const response = await fetch(`${API_ORIGIN}/api/v1/checkouts/preview`, {
         method: 'POST',
@@ -103,17 +134,37 @@ export default function CheckoutPage() {
         },
         body: JSON.stringify({ shippingAddress: address }),
       });
-      if (!response.ok) throw new Error('PREVIEW');
+      if (!response.ok) {
+        const problem = (await response.json().catch(() => ({}))) as {
+          code?: string;
+          requiredMarket?: InternationalMarketCode;
+        };
+        if (problem.code === 'CART_MARKET_MISMATCH' && problem.requiredMarket)
+          setTargetMarket(problem.requiredMarket);
+        throw new Error('PREVIEW');
+      }
       const nextPreview = (await response.json()) as CheckoutPreview;
       if (preview?.pricingFingerprint !== nextPreview.pricingFingerprint)
         setIdempotencyKey(newIdempotencyKey());
       setPreview(nextPreview);
     } catch {
-      setMessage('Review the US address and try the authoritative preview again.');
+      setMessage(
+        'Preview unavailable. Review the address and cart. Regional payments require the local stub; Stripe supports US/USD only.',
+      );
+    } finally {
+      setPreviewPending(false);
     }
   }
   async function submit() {
-    if (!preview || !etag || state === 'submitting') return;
+    if (!preview || !etag || state === 'submitting' || targetMarket || cart?.hasUnavailableItems)
+      return;
+    attempt.current ??= {
+      body: JSON.stringify(checkoutRequestBody(address, customerEmail, preview, choice)),
+      etag,
+      key: idempotencyKey,
+    };
+    const currentAttempt = attempt.current;
+    setRetryLocked(true);
     setState('submitting');
     setMessage('');
     try {
@@ -123,18 +174,36 @@ export default function CheckoutPage() {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          'If-Match': etag,
-          'Idempotency-Key': idempotencyKey,
+          'If-Match': currentAttempt.etag,
+          'Idempotency-Key': currentAttempt.key,
         },
-        body: JSON.stringify(checkoutRequestBody(address, customerEmail, preview, choice)),
+        body: currentAttempt.body,
       });
       const payload = (await response.json().catch(() => ({}))) as CheckoutResult & {
         detail?: string;
+        code?: string;
       };
-      if (!response.ok) throw new Error(payload.detail ?? 'CHECKOUT');
+      if (!response.ok) {
+        if (checkoutRequiresNewPreview(response.status, payload.code)) {
+          attempt.current = null;
+          setRetryLocked(false);
+          setPreview(null);
+          setIdempotencyKey(newIdempotencyKey());
+          await load();
+          setMessage('Checkout was rejected. Review a new authoritative total.');
+          return;
+        }
+        throw new Error(
+          'The outcome is uncertain or temporarily unavailable. Retry the same order; keep this page open.',
+        );
+      }
       setResult(payload);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Checkout could not be completed.');
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'The outcome is uncertain. Retry the same order; keep this page open.',
+      );
     } finally {
       setState('ready');
     }
@@ -177,7 +246,10 @@ export default function CheckoutPage() {
               View order status →
             </Link>
           ) : null}
-          <Link href="/catalog" className="text-link">
+          <Link
+            href={marketUrl('/catalog', result?.market ?? cart?.market ?? 'US')}
+            className="text-link"
+          >
             Return to catalog →
           </Link>
         </section>
@@ -219,7 +291,10 @@ export default function CheckoutPage() {
           >
             View order timeline →
           </Link>
-          <Link href="/catalog" className="text-link">
+          <Link
+            href={marketUrl('/catalog', result?.market ?? cart?.market ?? 'US')}
+            className="text-link"
+          >
             Continue shopping →
           </Link>
         </section>
@@ -232,7 +307,7 @@ export default function CheckoutPage() {
           <Link href="/cart" className={styles.backLink}>
             ← Back to cart
           </Link>
-          <p className="eyebrow">Guest checkout / United States · USD</p>
+          <p className="eyebrow">Guest checkout / {cart ? MARKET_LABELS[cart.market] : ''}</p>
           <h1>Checkout</h1>
           <p className="detail-note">
             {preview?.paymentProvider === 'stripe'
@@ -245,55 +320,122 @@ export default function CheckoutPage() {
             {message}
           </p>
         ) : null}
+        {targetMarket && etag ? (
+          <CartMarketReview
+            market={targetMarket}
+            etag={etag}
+            onCancel={() => {
+              setTargetMarket(null);
+              setPreview(null);
+              void load();
+            }}
+            onConfirmed={(next, nextEtag) => {
+              window.history.replaceState(
+                null,
+                '',
+                marketUrl(window.location.pathname + window.location.search, next.market),
+              );
+              setCart(next);
+              setEtag(nextEtag);
+              setTargetMarket(null);
+              setPreview(null);
+              setIdempotencyKey(newIdempotencyKey());
+              setMessage('Market changed. Preview the authoritative total again.');
+            }}
+          />
+        ) : null}
+        {retryLocked ? (
+          <p role="status">
+            Keep this page open. Delivery and payment choices are locked until the same order has a
+            known outcome.
+          </p>
+        ) : null}
         <div className="cart-layout">
           <form className="cart-summary" onSubmit={(event) => void requestPreview(event)}>
-            <h2>US shipping address</h2>
-            <label className="quantity-control">
-              Email for order confirmation
-              <input
-                required
-                type="email"
-                autoComplete="email"
-                maxLength={255}
-                value={customerEmail}
-                onChange={(event) => {
-                  setCustomerEmail(event.target.value);
-                  setIdempotencyKey(newIdempotencyKey());
-                }}
-              />
-            </label>
-            {(['fullName', 'line1', 'line2', 'city', 'state', 'postalCode'] as const).map(
-              (field) => (
-                <label className="quantity-control" key={field}>
-                  {field === 'line1'
-                    ? 'Address'
-                    : field === 'line2'
-                      ? 'Address line 2 (optional)'
-                      : field === 'fullName'
-                        ? 'Full name'
-                        : field[0].toUpperCase() + field.slice(1)}
-                  <input
-                    required={field !== 'line2'}
-                    maxLength={field === 'state' ? 2 : 160}
-                    value={address[field]}
-                    onChange={(event) => update(field, event.target.value)}
-                  />
-                </label>
-              ),
-            )}
-            <button type="submit">Preview authoritative total</button>
+            <h2>Shipping address</h2>
+            <fieldset
+              disabled={
+                retryLocked || state === 'submitting' || previewPending || targetMarket !== null
+              }
+            >
+              <legend>Delivery details</legend>
+              <label className="quantity-control">
+                Destination country
+                <select
+                  aria-label="Destination country"
+                  value={address.countryCode}
+                  onChange={(event) => update('countryCode', event.target.value as Destination)}
+                >
+                  {Object.entries(DESTINATIONS).map(([code, label]) => (
+                    <option key={code} value={code}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="quantity-control">
+                Email for order confirmation
+                <input
+                  required
+                  type="email"
+                  autoComplete="email"
+                  maxLength={255}
+                  value={customerEmail}
+                  onChange={(event) => {
+                    setCustomerEmail(event.target.value);
+                    setIdempotencyKey(newIdempotencyKey());
+                  }}
+                />
+              </label>
+              {(['fullName', 'line1', 'line2', 'city', 'state', 'postalCode'] as const).map(
+                (field) => (
+                  <label className="quantity-control" key={field}>
+                    {field === 'line1'
+                      ? 'Address'
+                      : field === 'line2'
+                        ? 'Address line 2 (optional)'
+                        : field === 'fullName'
+                          ? 'Full name'
+                          : field === 'postalCode'
+                            ? 'Postal code'
+                            : field[0].toUpperCase() + field.slice(1)}
+                    <input
+                      required={
+                        field !== 'line2' && (field !== 'state' || address.countryCode === 'US')
+                      }
+                      maxLength={
+                        field === 'state' && address.countryCode === 'US'
+                          ? 2
+                          : field === 'postalCode'
+                            ? 16
+                            : 160
+                      }
+                      value={address[field]}
+                      onChange={(event) => update(field, event.target.value)}
+                    />
+                  </label>
+                ),
+              )}
+              <p>
+                State is required for US destinations and optional elsewhere. Postal code must match
+                the selected country. Address checks do not verify deliverability.
+              </p>
+              <button type="submit">
+                {previewPending ? 'Calculating…' : 'Preview authoritative total'}
+              </button>
+            </fieldset>
           </form>
           <aside className="cart-summary">
             <p className="eyebrow">Authoritative total</p>
             {preview ? (
               <>
-                <p>Merchandise: {formatUsd(preview.subtotalMinor)}</p>
-                <p>Shipping: {formatUsd(preview.shippingMinor)}</p>
-                <p>Simulated tax: {formatUsd(preview.taxMinor)}</p>
-                <h2>{formatUsd(preview.totalMinor)}</h2>
+                <p>Merchandise: {formatMoney(preview.subtotalMinor, preview.currency)}</p>
+                <p>Shipping: {formatMoney(preview.shippingMinor, preview.currency)}</p>
+                <p>Simulated tax: {formatMoney(preview.taxMinor, preview.currency)}</p>
+                <h2>{formatMoney(preview.totalMinor, preview.currency)}</h2>
                 <p className="detail-note">{preview.taxNotice}</p>
                 {preview.paymentProvider === 'stub' ? (
-                  <fieldset>
+                  <fieldset disabled={retryLocked || state === 'submitting'}>
                     <legend>Demo payment result</legend>
                     <label>
                       <input
@@ -326,18 +468,25 @@ export default function CheckoutPage() {
                 )}
                 <button
                   type="button"
-                  disabled={state === 'submitting'}
+                  disabled={
+                    state === 'submitting' || targetMarket !== null || cart?.hasUnavailableItems
+                  }
                   onClick={() => void submit()}
                 >
                   {state === 'submitting'
                     ? 'Preparing…'
-                    : preview.paymentProvider === 'stripe'
-                      ? 'Continue to secure payment'
-                      : 'Place demo order'}
+                    : retryLocked
+                      ? 'Retry same order'
+                      : preview.paymentProvider === 'stripe'
+                        ? 'Continue to secure payment'
+                        : 'Place demo order'}
                 </button>
               </>
             ) : (
-              <p>Enter a US address to calculate server-owned totals.</p>
+              <p>
+                Prices exclude simulated tax. Enter a supported address to calculate server-owned
+                totals.
+              </p>
             )}{' '}
             {cart?.hasUnavailableItems ? (
               <p className="availability unavailable">
