@@ -1,6 +1,18 @@
+import type { InternationalMarketCode, SupportedCurrency } from '@pulse-field/contracts';
+import { SHOPPING_MARKETS } from '../checkout/shopping-configuration.service';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsIn,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export const CATALOG_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
@@ -16,7 +28,14 @@ export enum CatalogAvailability {
   OUT_OF_STOCK = 'out-of-stock',
 }
 
-export class CatalogQueryDto {
+export class CatalogMarketQueryDto {
+  @ApiPropertyOptional({ enum: SHOPPING_MARKETS, default: 'US' })
+  @IsIn(SHOPPING_MARKETS)
+  @IsOptional()
+  market?: InternationalMarketCode;
+}
+
+export class CatalogQueryDto extends CatalogMarketQueryDto {
   @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 1 })
   @Type(() => Number)
   @IsInt()
@@ -99,7 +118,7 @@ export class CatalogVariantDto {
   priceMinor!: number;
 
   @ApiProperty({ example: 'USD' })
-  currency!: 'USD';
+  currency!: SupportedCurrency;
 
   @ApiProperty()
   available!: number;
@@ -109,6 +128,8 @@ export class CatalogVariantDto {
 }
 
 export class CatalogProductDto {
+  @ApiProperty({ enum: SHOPPING_MARKETS }) market!: InternationalMarketCode;
+  @ApiProperty({ enum: ['exclusive'] }) taxTreatment!: 'exclusive';
   @ApiProperty()
   id!: string;
 
@@ -137,7 +158,7 @@ export class CatalogProductDto {
   inStock!: boolean;
 
   @ApiProperty({ example: 'USD' })
-  currency!: 'USD';
+  currency!: SupportedCurrency;
 
   @ApiPropertyOptional({
     description: 'Present only when a product was requested by a historical slug.',
@@ -146,6 +167,9 @@ export class CatalogProductDto {
 }
 
 export class CatalogListDto {
+  @ApiProperty({ enum: SHOPPING_MARKETS }) market!: InternationalMarketCode;
+  @ApiProperty({ enum: ['exclusive'] }) taxTreatment!: 'exclusive';
+  @ApiProperty({ enum: ['USD', 'MAD', 'EUR', 'GBP'] }) currency!: SupportedCurrency;
   @ApiProperty({ type: [CatalogProductDto] })
   items!: CatalogProductDto[];
 

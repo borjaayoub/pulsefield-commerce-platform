@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PaymentProvider } from '@pulse-field/contracts';
+import { seedInternationalCommerce } from '../../prisma/seed-international-commerce';
 import { seedPhase3Commerce } from '../../prisma/seed-commerce';
 import { AuditService } from '../audit/audit.service';
 import { CartService } from '../cart/cart.service';
@@ -88,6 +89,7 @@ describe('payment lifecycle database integration', () => {
     refundPayment.mockReset();
     await clearCommerceData(prisma);
     await seedPhase3Commerce(prisma);
+    await seedInternationalCommerce(prisma);
     await createActivePolicy(prisma);
   });
 

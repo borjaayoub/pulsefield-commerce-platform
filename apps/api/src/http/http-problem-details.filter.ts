@@ -7,6 +7,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
+import { InternationalConfigurationUnavailableError } from '../checkout/international-commerce-configuration.reader';
+import {
+  CheckoutMarketMismatchError,
+  RegionalPaymentProviderUnavailableError,
+} from '../checkout/checkout.errors';
+import { CommerceConfigurationUnavailableError } from '../checkout/shopping-configuration.service';
 import type { Request, Response } from 'express';
 import { STATUS_CODES } from 'node:http';
 import { InvalidEmailVerificationTokenError } from '../identity/email-verification-token.service';
@@ -32,6 +38,7 @@ import {
   CartRevisionConflictError,
   CartRevisionRequiredError,
   CartCheckoutPendingError,
+  CartMarketPreviewStaleError,
 } from '../cart/cart.errors';
 import {
   CheckoutConflictError,
@@ -64,6 +71,12 @@ interface ProblemDefinition {
   availableQuantity?: number;
   currentRevision?: number;
   currentVersion?: number;
+  marketMismatch?: {
+    currentMarket: string;
+    requiredMarket: string;
+    requiredCurrency: string;
+    cartRevision: number;
+  };
 }
 
 function validationMessages(exception: HttpException): string[] | undefined {
@@ -129,6 +142,16 @@ function defineProblem(exception: unknown): ProblemDefinition {
       detail: exception.message,
     };
   }
+  if (
+    exception instanceof InternationalConfigurationUnavailableError ||
+    exception instanceof RegionalPaymentProviderUnavailableError
+  ) {
+    return {
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      code: exception.code,
+      detail: exception.message,
+    };
+  }
   if (exception instanceof CheckoutConflictError) {
     return {
       status:
@@ -137,6 +160,16 @@ function defineProblem(exception: unknown): ProblemDefinition {
           : HttpStatus.CONFLICT,
       code: exception.code,
       detail: exception.message,
+      ...(exception instanceof CheckoutMarketMismatchError
+        ? {
+            marketMismatch: {
+              currentMarket: exception.currentMarket,
+              requiredMarket: exception.requiredMarket,
+              requiredCurrency: exception.requiredCurrency,
+              cartRevision: exception.cartRevision,
+            },
+          }
+        : {}),
       ...(exception.currentRevision !== undefined
         ? { currentRevision: exception.currentRevision }
         : {}),
@@ -197,6 +230,16 @@ function defineProblem(exception: unknown): ProblemDefinition {
   }
   if (exception instanceof CartCheckoutPendingError) {
     return { status: HttpStatus.CONFLICT, code: exception.code, detail: exception.message };
+  }
+  if (exception instanceof CartMarketPreviewStaleError) {
+    return { status: HttpStatus.CONFLICT, code: exception.code, detail: exception.message };
+  }
+  if (exception instanceof CommerceConfigurationUnavailableError) {
+    return {
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      code: exception.code,
+      detail: exception.message,
+    };
   }
   if (exception instanceof CartRevisionRequiredError) {
     return {
@@ -421,6 +464,7 @@ export class HttpProblemDetailsFilter implements ExceptionFilter {
         instance: request.path,
         code: problem.code,
         requestId,
+        ...(problem.marketMismatch ?? {}),
         ...(problem.errors ? { errors: problem.errors } : {}),
         ...(problem.availableQuantity !== undefined
           ? { availableQuantity: problem.availableQuantity }

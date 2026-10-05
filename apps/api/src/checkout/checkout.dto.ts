@@ -1,31 +1,35 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import {
-  IsEmail,
-  IsIn,
-  IsOptional,
-  IsPostalCode,
-  IsString,
-  Length,
-  Matches,
-  ValidateNested,
-} from 'class-validator';
+import type { SupportedCurrency, InternationalMarketCode } from '@pulse-field/contracts';
+import { CountryPostalCode, CountryState, SHIPPING_COUNTRIES } from './shipping-address.validation';
+import { Transform, Type } from 'class-transformer';
+import { IsEmail, IsIn, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
 
-export class UsShippingAddressDto {
+export class ShippingAddressDto {
   @ApiProperty({ example: 'Ayoub Example' }) @IsString() @Length(1, 120) fullName!: string;
   @ApiProperty({ example: '100 Market Street' }) @IsString() @Length(1, 160) line1!: string;
   @ApiProperty({ example: 'Suite 4', required: false }) @IsString() @Length(0, 160) line2?: string;
   @ApiProperty({ example: 'San Francisco' }) @IsString() @Length(1, 120) city!: string;
-  @ApiProperty({ example: 'CA' }) @Matches(/^[A-Z]{2}$/u) state!: string;
-  @ApiProperty({ example: '94105' }) @IsPostalCode('US') postalCode!: string;
-  @ApiProperty({ example: 'US' }) @IsIn(['US']) countryCode!: 'US';
+  @ApiProperty({
+    example: 'CA',
+    required: false,
+    description: 'Required two-letter state for US; optional bounded area elsewhere.',
+  })
+  @CountryState()
+  state?: string;
+  @ApiProperty({ example: '94105' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @CountryPostalCode()
+  postalCode!: string;
+  @ApiProperty({ example: 'US' }) @IsIn(SHIPPING_COUNTRIES) countryCode!: string;
 }
 
 export class CheckoutPreviewDto {
-  @ApiProperty({ type: UsShippingAddressDto })
+  @ApiProperty({ type: ShippingAddressDto })
   @ValidateNested()
-  @Type(() => UsShippingAddressDto)
-  shippingAddress!: UsShippingAddressDto;
+  @Type(() => ShippingAddressDto)
+  shippingAddress!: ShippingAddressDto;
 }
 
 export class CreateCheckoutDto extends CheckoutPreviewDto {
@@ -51,7 +55,10 @@ export class CheckoutLineDto {
 export class CheckoutPreviewResponseDto {
   @ApiProperty({ enum: ['stub', 'stripe'] })
   paymentProvider!: 'stub' | 'stripe';
-  @ApiProperty() currency!: 'USD';
+  @ApiProperty({ enum: ['USD', 'MAD', 'EUR', 'GBP'] }) currency!: SupportedCurrency;
+  @ApiProperty({ required: false }) market?: InternationalMarketCode;
+  @ApiProperty({ required: false }) configurationId?: string;
+  @ApiProperty({ required: false }) taxTreatment?: 'exclusive';
   @ApiProperty() policyVersion!: number;
   @ApiProperty({ type: [CheckoutLineDto] }) lines!: CheckoutLineDto[];
   @ApiProperty() subtotalMinor!: number;

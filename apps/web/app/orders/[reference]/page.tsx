@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { API_ORIGIN, formatUsd } from '../../catalog/catalog-types';
+import { API_ORIGIN } from '../../catalog/catalog-types';
 import { StorefrontShell } from '../../../components/storefront-shell';
 import {
   accessTokenFromFragment,
+  formatOrderMoney,
   guestOrderSessionKey,
   type OrderTimeline,
 } from './order-timeline';
@@ -131,14 +132,16 @@ export default function OrderTimelinePage() {
                 <span>
                   {line.productName} · {line.variantName} × {line.quantity}
                 </span>
-                <strong>{formatUsd(line.lineTotalMinor)}</strong>
+                <strong>{formatOrderMoney(line.lineTotalMinor, timeline.currency)}</strong>
               </div>
             ))}
             <hr />
-            <p>Merchandise: {formatUsd(timeline.subtotalMinor)}</p>
-            <p>Shipping: {formatUsd(timeline.shippingMinor)}</p>
-            <p>Simulated tax: {formatUsd(timeline.taxMinor)}</p>
-            <p className="cart-total">Total: {formatUsd(timeline.totalMinor)}</p>
+            <p>Merchandise: {formatOrderMoney(timeline.subtotalMinor, timeline.currency)}</p>
+            <p>Shipping: {formatOrderMoney(timeline.shippingMinor, timeline.currency)}</p>
+            <p>Simulated tax: {formatOrderMoney(timeline.taxMinor, timeline.currency)}</p>
+            <p className="cart-total">
+              Total: {formatOrderMoney(timeline.totalMinor, timeline.currency)}
+            </p>
           </aside>
         </div>
       </main>

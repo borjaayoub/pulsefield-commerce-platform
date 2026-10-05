@@ -40,7 +40,11 @@ export class PaymentCompensationService {
     if (
       !candidate ||
       candidate.provider !== this.payments.provider ||
-      candidate.currencyCode !== 'USD'
+      (candidate.currencyCode !== 'USD' &&
+        candidate.currencyCode !== 'MAD' &&
+        candidate.currencyCode !== 'EUR' &&
+        candidate.currencyCode !== 'GBP') ||
+      (candidate.provider === 'stripe' && candidate.currencyCode !== 'USD')
     )
       conflict();
     if (

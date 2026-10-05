@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { seedInternationalCommerce } from '../../prisma/seed-international-commerce';
+import { setUsShoppingReservationDuration } from '../testing/shopping-fixtures';
 import { seedPhase3Commerce } from '../../prisma/seed-commerce';
 import { AuditService } from '../audit/audit.service';
 import { CartService } from '../cart/cart.service';
@@ -90,6 +92,7 @@ describe('Phase 5 cross-workflow concurrency acceptance', () => {
       "Cart", "CommercePolicyVersion", "InventoryMovement", "InventoryBalance",
       "InventoryAllocationPolicy", "Warehouse", "PriceBook", "Product", "Category" CASCADE`);
     await seedPhase3Commerce(prisma);
+    await seedInternationalCommerce(prisma);
     variantId = (await prisma.productVariant.findFirstOrThrow({ orderBy: { id: 'asc' } })).id;
     sourceId = (await prisma.warehouse.findUniqueOrThrow({ where: { code: 'US-EAST-01' } })).id;
     destinationId = (await prisma.warehouse.findUniqueOrThrow({ where: { code: 'EU-CENTRAL-01' } }))
@@ -378,6 +381,7 @@ describe('Phase 5 cross-workflow concurrency acceptance', () => {
         calculationVersion: 'phase5-expiry-acceptance',
       },
     });
+    await setUsShoppingReservationDuration(prisma, 1);
     const pendingProviderId = randomUUID();
     const pendingCheckout = new CheckoutService(
       prisma,

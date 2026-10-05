@@ -510,6 +510,7 @@ model PriceBookVersion {
   updatedAt        DateTime                  @updatedAt
   prices           VariantPrice[]
   commercePolicies CommercePolicyVersion[]
+  marketVersions   CommerceMarketVersion[]
   orders           Order[]
 
   @@unique([priceBookId, version])
@@ -560,17 +561,18 @@ model InventoryAllocationPolicy {
 }
 
 model InventoryAllocationPolicyVersion {
-  id           String                               @id @default(uuid()) @db.Uuid
-  policy       InventoryAllocationPolicy            @relation(fields: [policyId], references: [id], onDelete: Restrict)
-  policyId     String                               @db.Uuid
-  version      Int
-  lifecycle    InventoryAllocationPolicyLifecycle   @default(DRAFT)
-  activatedAt  DateTime?
-  retiredAt    DateTime?
-  createdAt    DateTime                             @default(now())
-  updatedAt    DateTime                             @updatedAt
-  warehouses   InventoryAllocationPolicyWarehouse[]
-  reservations InventoryReservation[]
+  id             String                               @id @default(uuid()) @db.Uuid
+  policy         InventoryAllocationPolicy            @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  policyId       String                               @db.Uuid
+  version        Int
+  lifecycle      InventoryAllocationPolicyLifecycle   @default(DRAFT)
+  activatedAt    DateTime?
+  retiredAt      DateTime?
+  createdAt      DateTime                             @default(now())
+  updatedAt      DateTime                             @updatedAt
+  warehouses     InventoryAllocationPolicyWarehouse[]
+  reservations   InventoryReservation[]
+  marketVersions CommerceMarketVersion[]
 
   @@unique([policyId, version])
   @@index([policyId, lifecycle])
@@ -691,6 +693,7 @@ model InventoryCommandResult {
 }
 
 model Cart {
+  marketCode        String     @default("US") @db.Char(2)
   id                String     @id @default(uuid()) @db.Uuid
   tokenDigest       String     @unique @db.Char(64)
   revision          Int        @default(1)
@@ -721,6 +724,65 @@ model CartItem {
 
   @@unique([cartId, variantId])
   @@index([variantId])
+}
+
+model CommerceMarket {
+  id           String                  @id @default(uuid()) @db.Uuid
+  code         String                  @unique @db.Char(2)
+  currencyCode String                  @db.Char(3)
+  createdAt    DateTime                @default(now())
+  versions     CommerceMarketVersion[]
+}
+
+model CommerceMarketVersion {
+  id                         String                           @id @default(uuid()) @db.Uuid
+  marketId                   String                           @db.Uuid
+  market                     CommerceMarket                   @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  version                    Int
+  lifecycle                  CommercePolicyLifecycle          @default(DRAFT)
+  effectiveFrom              DateTime
+  activatedAt                DateTime?
+  retiredAt                  DateTime?
+  countryCodes               String[]
+  priceBookVersionId         String                           @db.Uuid
+  priceBookVersion           PriceBookVersion                 @relation(fields: [priceBookVersionId], references: [id], onDelete: Restrict)
+  allocationPolicyVersionId  String                           @db.Uuid
+  allocationPolicyVersion    InventoryAllocationPolicyVersion @relation(fields: [allocationPolicyVersionId], references: [id], onDelete: Restrict)
+  calculationVersion         String                           @db.VarChar(64)
+  taxCalculationId           String                           @db.VarChar(128)
+  shippingCalculationId      String                           @db.VarChar(128)
+  taxTreatment               String                           @db.VarChar(16)
+  taxRateBasisPoints         Int
+  shippingBaseMinor          Int
+  freeShippingThresholdMinor Int
+  heavyThresholdGrams        Int
+  heavySurchargeBasisPoints  Int
+  reservationDurationSeconds Int
+  createdAt                  DateTime                         @default(now())
+
+  orders Order[]
+
+  @@unique([marketId, version])
+  @@index([marketId, lifecycle])
+}
+
+model ReportingRateVersion {
+  id             String    @id @default(uuid()) @db.Uuid
+  sourceCurrency String    @db.Char(3)
+  targetCurrency String    @db.Char(3)
+  revision       Int
+  numerator      BigInt
+  denominator    BigInt
+  sourceNote     String    @db.VarChar(160)
+  effectiveFrom  DateTime
+  freshUntil     DateTime
+  publishedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  orders Order[]
+
+  @@unique([sourceCurrency, targetCurrency, revision])
+  @@index([sourceCurrency, targetCurrency, effectiveFrom])
 }
 
 model CommercePolicyVersion {
@@ -778,35 +840,44 @@ model InventoryReservationItem {
 }
 
 model Order {
-  id                      String                 @id @default(uuid()) @db.Uuid
-  reference               String                 @unique @db.VarChar(32)
-  status                  OrderStatus            @default(PENDING_PAYMENT)
-  cart                    Cart                   @relation(fields: [cartId], references: [id], onDelete: Restrict)
-  cartId                  String                 @db.Uuid
-  policyVersion           CommercePolicyVersion  @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
-  policyVersionId         String                 @db.Uuid
-  priceBookVersion        PriceBookVersion       @relation(fields: [priceBookVersionId], references: [id], onDelete: Restrict)
-  priceBookVersionId      String                 @db.Uuid
-  reservation             InventoryReservation   @relation("OrderOriginalReservation", fields: [reservationId], references: [id], onDelete: Restrict)
-  reservationId           String                 @unique @db.Uuid
-  recoveryReservation     InventoryReservation?  @relation("OrderRecoveryReservation", fields: [recoveryReservationId], references: [id], onDelete: Restrict)
-  recoveryReservationId   String?                @unique @db.Uuid
-  currencyCode            String                 @db.Char(3)
-  subtotalMinor           BigInt
-  shippingMinor           BigInt
-  taxMinor                BigInt
-  totalMinor              BigInt
-  calculationSnapshot     Json
-  shippingAddressSnapshot Json
-  customerEmailNormalized String?                @db.VarChar(255)
-  createdAt               DateTime               @default(now())
-  updatedAt               DateTime               @updatedAt
-  lines                   OrderLine[]
-  paymentAttempts         PaymentAttempt[]
-  paymentCompensations    PaymentCompensation[]
-  fulfillmentGroups       FulfillmentGroup[]
-  guestAccessGrant        GuestOrderAccessGrant?
-  notificationDeliveries  NotificationDelivery[]
+  id                               String                 @id @default(uuid()) @db.Uuid
+  reference                        String                 @unique @db.VarChar(32)
+  status                           OrderStatus            @default(PENDING_PAYMENT)
+  cart                             Cart                   @relation(fields: [cartId], references: [id], onDelete: Restrict)
+  cartId                           String                 @db.Uuid
+  policyVersion                    CommercePolicyVersion? @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  policyVersionId                  String?                @db.Uuid
+  commerceMarketVersionId          String?                @db.Uuid
+  commerceMarketVersion            CommerceMarketVersion? @relation(fields: [commerceMarketVersionId], references: [id], onDelete: Restrict)
+  reportingRateVersionId           String?                @db.Uuid
+  reportingRateVersion             ReportingRateVersion?  @relation(fields: [reportingRateVersionId], references: [id], onDelete: Restrict)
+  reportingSubtotalMinor           BigInt?
+  reportingShippingMinor           BigInt?
+  reportingTaxMinor                BigInt?
+  reportingTotalMinor              BigInt?
+  reportingRoundingAdjustmentMinor BigInt?
+  priceBookVersion                 PriceBookVersion       @relation(fields: [priceBookVersionId], references: [id], onDelete: Restrict)
+  priceBookVersionId               String                 @db.Uuid
+  reservation                      InventoryReservation   @relation("OrderOriginalReservation", fields: [reservationId], references: [id], onDelete: Restrict)
+  reservationId                    String                 @unique @db.Uuid
+  recoveryReservation              InventoryReservation?  @relation("OrderRecoveryReservation", fields: [recoveryReservationId], references: [id], onDelete: Restrict)
+  recoveryReservationId            String?                @unique @db.Uuid
+  currencyCode                     String                 @db.Char(3)
+  subtotalMinor                    BigInt
+  shippingMinor                    BigInt
+  taxMinor                         BigInt
+  totalMinor                       BigInt
+  calculationSnapshot              Json
+  shippingAddressSnapshot          Json
+  customerEmailNormalized          String?                @db.VarChar(255)
+  createdAt                        DateTime               @default(now())
+  updatedAt                        DateTime               @updatedAt
+  lines                            OrderLine[]
+  paymentAttempts                  PaymentAttempt[]
+  paymentCompensations             PaymentCompensation[]
+  fulfillmentGroups                FulfillmentGroup[]
+  guestAccessGrant                 GuestOrderAccessGrant?
+  notificationDeliveries           NotificationDelivery[]
 
   @@index([cartId, createdAt])
   @@index([status, createdAt])

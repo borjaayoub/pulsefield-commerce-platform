@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { seedInternationalCommerce } from '../../prisma/seed-international-commerce';
 import { seedPhase3Commerce } from '../../prisma/seed-commerce';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -66,6 +67,7 @@ describe('inventory operations isolated PostgreSQL integration', () => {
       'TRUNCATE TABLE "InventoryCommandResult", "IdempotencyRecord", "AuditRecord", "InventoryTransfer", "FulfillmentGroupItem", "FulfillmentGroup", "PaymentAttempt", "OrderLine", "Order", "InventoryReservationItem", "InventoryReservation", "CartItem", "Cart", "CommercePolicyVersion", "InventoryMovement", "InventoryBalance", "InventoryAllocationPolicyWarehouse", "InventoryAllocationPolicyVersion", "InventoryAllocationPolicy", "Warehouse", "VariantPrice", "PriceBookVersion", "PriceBook", "ProductMedia", "ProductCategory", "Category", "ProductVariant", "ProductSlug", "Product" CASCADE',
     );
     await seedPhase3Commerce(prisma);
+    await seedInternationalCommerce(prisma);
     const variants = await prisma.productVariant.findMany({
       where: { status: 'ACTIVE' },
       orderBy: { id: 'asc' },

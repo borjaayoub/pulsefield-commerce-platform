@@ -71,7 +71,11 @@ export class PaymentReconciliationExecutionService {
       !candidate ||
       candidate.provider !== this.payments.provider ||
       candidate.providerPaymentId === null ||
-      candidate.currencyCode !== 'USD'
+      (candidate.currencyCode !== 'USD' &&
+        candidate.currencyCode !== 'MAD' &&
+        candidate.currencyCode !== 'EUR' &&
+        candidate.currencyCode !== 'GBP') ||
+      (candidate.provider === 'stripe' && candidate.currencyCode !== 'USD')
     ) {
       return { outcome: 'REJECTED' };
     }
@@ -184,10 +188,19 @@ export class PaymentReconciliationExecutionService {
       conflict();
     }
     let allocationDecision: Awaited<ReturnType<typeof lockInventoryAllocation>>;
+    if (
+      attempt.order.commerceMarketVersionId &&
+      !attempt.order.reservation.allocationPolicyVersionId
+    )
+      conflict();
     try {
       allocationDecision = await lockInventoryAllocation(
         tx,
         attempt.order.lines.map((line) => ({ variantId: line.variantId, quantity: line.quantity })),
+        attempt.order.commerceMarketVersionId
+          ? (attempt.order.reservation.allocationPolicyVersionId ?? undefined)
+          : undefined,
+        !!attempt.order.commerceMarketVersionId,
       );
     } catch (error) {
       if (error instanceof InventoryAllocationPolicyUnavailableError) conflict();

@@ -94,8 +94,14 @@ describe('Phase 3 US/USD checkout calculation', () => {
   it('passes the plain address projection into the checkout idempotency command', async () => {
     const begin = jest.fn().mockRejectedValue(new Error('captured before persistence'));
     const service = new CheckoutService(
-      { cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart-1' }) } } as never,
-      { begin } as never,
+      {
+        cart: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({ id: 'cart-1', marketCode: 'US', status: 'CONVERTED' }),
+        },
+      } as never,
+      { begin, retainedResult: jest.fn().mockResolvedValue(null) } as never,
       {} as never,
       {} as never,
     );

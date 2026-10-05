@@ -9,6 +9,7 @@ import {
   Param,
   ParseUUIDPipe,
   Put,
+  Post,
   Body,
   Req,
   Res,
@@ -34,7 +35,13 @@ import {
 import { digestCartToken, readCartToken } from './cart-cookie';
 import { CartRequestValidationError } from './cart.errors';
 import { setCartCookie } from './cart-cookie';
-import { CartDto, SetCartItemDto } from './cart.dto';
+import {
+  CartDto,
+  SetCartItemDto,
+  PreviewCartMarketDto,
+  ConfirmCartMarketDto,
+  CartMarketPreviewDto,
+} from './cart.dto';
 import { ProblemDetailsDto } from '../http/problem-details.dto';
 import { CartService } from './cart.service';
 
@@ -46,6 +53,20 @@ function parseRevision(value: string | undefined): number | undefined {
   if (!Number.isSafeInteger(revision)) throw new CartRequestValidationError();
   return revision;
 }
+
+const MARKET_MUTATION_THROTTLE = {
+  cartMutation: {
+    limit: CART_MUTATION_RATE_LIMIT,
+    ttl: IDENTITY_RATE_LIMIT_WINDOW_MS,
+    blockDuration: IDENTITY_RATE_LIMIT_WINDOW_MS,
+    getTracker: async (request: Record<string, unknown>) => {
+      const socket = request.socket as { remoteAddress?: string } | undefined;
+      const token = readCartToken(request as unknown as Request);
+      return `${socket?.remoteAddress ?? 'unknown'}:${token ? digestCartToken(token) : 'absent'}`;
+    },
+    generateKey: (_context: unknown, tracker: string, name: string) => `cart-${name}-${tracker}`,
+  },
+};
 
 @ApiTags('Cart')
 @Controller('cart')
@@ -77,6 +98,58 @@ export class CartController {
     private readonly carts: CartService,
     @Inject(IDENTITY_WEB_ORIGIN) private readonly webOrigin: string,
   ) {}
+
+  @Post('market-preview')
+  @UseGuards(BrowserRequestGuard)
+  @Throttle(MARKET_MUTATION_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: CartMarketPreviewDto })
+  @ApiResponse({ status: 400, type: ProblemDetailsDto })
+  @ApiResponse({ status: 428, type: ProblemDetailsDto })
+  @ApiResponse({ status: 409, type: ProblemDetailsDto })
+  @ApiResponse({ status: 429, type: ProblemDetailsDto })
+  @ApiResponse({ status: 503, type: ProblemDetailsDto })
+  async previewMarket(
+    @Body() body: PreviewCartMarketDto,
+    @Headers('if-match') ifMatch: string | undefined,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<CartMarketPreviewDto> {
+    const result = await this.carts.previewMarket(
+      readCartToken(request),
+      body.market,
+      parseRevision(ifMatch),
+    );
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('ETag', `"cart-${result.cart.revision}"`);
+    return { cart: result.cart, pricingFingerprint: result.pricingFingerprint };
+  }
+
+  @Put('market')
+  @UseGuards(BrowserRequestGuard)
+  @Throttle(MARKET_MUTATION_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: CartDto })
+  @ApiResponse({ status: 400, type: ProblemDetailsDto })
+  @ApiResponse({ status: 428, type: ProblemDetailsDto })
+  @ApiResponse({ status: 409, type: ProblemDetailsDto })
+  @ApiResponse({ status: 429, type: ProblemDetailsDto })
+  @ApiResponse({ status: 503, type: ProblemDetailsDto })
+  async confirmMarket(
+    @Body() body: ConfirmCartMarketDto,
+    @Headers('if-match') ifMatch: string | undefined,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<CartDto> {
+    const result = await this.carts.confirmMarket(
+      readCartToken(request),
+      body.market,
+      body.pricingFingerprint,
+      parseRevision(ifMatch),
+    );
+    this.finish(response, result.token, result.cart.revision);
+    return result.cart;
+  }
 
   @Get()
   @ApiOperation({ summary: 'Read the current anonymous cart.' })

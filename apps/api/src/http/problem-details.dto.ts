@@ -39,4 +39,9 @@ export class ProblemDetailsDto {
     description: 'Current fulfillment group version after a conflict.',
   })
   currentVersion?: number;
+
+  @ApiPropertyOptional({ enum: ['US', 'MA', 'EU', 'UK'] }) currentMarket?: string;
+  @ApiPropertyOptional({ enum: ['US', 'MA', 'EU', 'UK'] }) requiredMarket?: string;
+  @ApiPropertyOptional({ enum: ['USD', 'MAD', 'EUR', 'GBP'] }) requiredCurrency?: string;
+  @ApiPropertyOptional({ minimum: 1 }) cartRevision?: number;
 }

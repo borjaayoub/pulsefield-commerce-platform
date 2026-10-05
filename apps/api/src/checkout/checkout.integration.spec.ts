@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { seedInternationalCommerce } from '../../prisma/seed-international-commerce';
 import { seedPhase3Commerce } from '../../prisma/seed-commerce';
 import { AuditService } from '../audit/audit.service';
 import { CartService } from '../cart/cart.service';
@@ -54,6 +55,7 @@ describe('checkout, reservation, and payment database integration', () => {
   beforeEach(async () => {
     await clearCommerceData(prisma);
     await seedPhase3Commerce(prisma);
+    await seedInternationalCommerce(prisma);
     await createActivePolicy(prisma);
   });
 
@@ -112,7 +114,9 @@ describe('checkout, reservation, and payment database integration', () => {
     });
     expect(order.priceBookVersionId).toBe('61000000-0000-4000-8000-000000000001');
     expect(order.customerEmailNormalized).toBe('checkout@example.test');
-    expect(order.policyVersionId).toBe(POLICY_ID);
+    expect(order.policyVersionId).toBeNull();
+    expect(order.commerceMarketVersionId).not.toBeNull();
+    expect(order.reportingTotalMinor).toBe(order.totalMinor);
     expect(order.reservation.allocationPolicyVersionId).toBe(
       '74100000-0000-4000-8000-000000000001',
     );
@@ -122,11 +126,12 @@ describe('checkout, reservation, and payment database integration', () => {
       mediaSnapshot: [{ storageKey: 'catalog/seed/aero-tempo-tee.svg' }],
     });
     expect(order.calculationSnapshot).toMatchObject({
-      policyId: POLICY_ID,
+      policy: {
+        configurationId: order.commerceMarketVersionId,
+        taxRateBasisPoints: 825,
+        shippingBaseMinor: 800,
+      },
       priceBookVersionId: order.priceBookVersionId,
-      rounding: 'half-up-per-line',
-      taxRateBasisPoints: 825,
-      shippingBaseMinor: 800,
       reservationDurationSeconds: 600,
     });
     await expect(
@@ -284,7 +289,14 @@ describe('checkout, reservation, and payment database integration', () => {
   it('fails checkout closed when no active inventory allocation policy exists', async () => {
     const prepared = await prepareCart();
     const active = await prisma.inventoryAllocationPolicyVersion.findFirstOrThrow({
-      where: { lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE },
+      where: {
+        lifecycle: InventoryAllocationPolicyLifecycle.ACTIVE,
+        policy: { code: 'US-FULFILLMENT' },
+      },
+    });
+    await prisma.commerceMarketVersion.updateMany({
+      where: { lifecycle: 'ACTIVE', market: { code: 'US' } },
+      data: { lifecycle: 'RETIRED' },
     });
     await prisma.inventoryAllocationPolicyVersion.update({
       where: { id: active.id },
@@ -296,7 +308,7 @@ describe('checkout, reservation, and payment database integration', () => {
 
     await expect(
       checkout.preview(prepared.token, prepared.revision, { shippingAddress: ADDRESS }),
-    ).rejects.toMatchObject({ code: 'CHECKOUT_UNAVAILABLE' });
+    ).rejects.toMatchObject({ code: 'INTERNATIONAL_CONFIGURATION_UNAVAILABLE' });
     await expect(prisma.inventoryReservation.count()).resolves.toBe(0);
     await expect(prisma.order.count()).resolves.toBe(0);
   });

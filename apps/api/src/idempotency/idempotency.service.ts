@@ -101,6 +101,33 @@ function actorType(type: CommandContext['actor']['type']): AuditActorType {
 export class IdempotencyService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Read-only replay lookup before commercial preflight; begin still owns claims. */
+  async retainedResult(input: BeginIdempotentCommandInput, context: CommandContext) {
+    const command = normalizeCommandContext(context);
+    const operation = identifier(input.operation, OPERATION_PATTERN);
+    const existing = await this.prisma.idempotencyRecord.findUnique({
+      where: {
+        actorType_actorId_operation_keyDigest: {
+          actorType: actorType(command.actor.type),
+          actorId: command.actor.id,
+          operation,
+          keyDigest: digest(command.idempotencyKey),
+        },
+      },
+    });
+    if (!existing) return null;
+    if (existing.requestFingerprint !== fingerprintIdempotentRequest(operation, input.request))
+      throw new IdempotencyConflictError();
+    if (existing.status !== IdempotencyStatus.COMPLETED) return null;
+    if (!existing.resultType || !existing.resultId || !existing.responseStatus)
+      throw new IdempotencyClaimLostError();
+    return {
+      type: existing.resultType,
+      id: existing.resultId,
+      responseStatus: existing.responseStatus,
+    };
+  }
+
   async begin(
     input: BeginIdempotentCommandInput,
     context: CommandContext,

@@ -1,8 +1,10 @@
+import type { SupportedCurrency } from '@pulse-field/contracts';
+
 export type OrderTimeline = {
   orderReference: string;
   status: string;
   fulfillmentProgress: string;
-  currency: 'USD';
+  currency: SupportedCurrency;
   subtotalMinor: number;
   shippingMinor: number;
   taxMinor: number;
@@ -33,4 +35,8 @@ export function accessTokenFromFragment(fragment: string): string | undefined {
 
 export function guestOrderSessionKey(reference: string): string {
   return `pulse-field:guest-order:${reference}`;
+}
+
+export function formatOrderMoney(amountMinor: number, currency: SupportedCurrency): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amountMinor / 100);
 }

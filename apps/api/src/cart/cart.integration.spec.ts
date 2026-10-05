@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { seedInternationalCommerce } from '../../prisma/seed-international-commerce';
 import { seedPhase3Commerce } from '../../prisma/seed-commerce';
 import { PrismaService } from '../database/prisma.service';
 import { CartService } from './cart.service';
@@ -20,6 +21,7 @@ describe('persistent anonymous cart database integration', () => {
   beforeEach(async () => {
     await clearCommerceData(prisma);
     await seedPhase3Commerce(prisma);
+    await seedInternationalCommerce(prisma);
   });
 
   afterAll(async () => {

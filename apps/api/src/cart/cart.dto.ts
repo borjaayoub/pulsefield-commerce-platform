@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, Max, Min } from 'class-validator';
+import type { InternationalMarketCode, SupportedCurrency } from '@pulse-field/contracts';
+import { SHOPPING_MARKETS } from '../checkout/shopping-configuration.service';
+import { IsIn, Matches, IsInt, Max, Min } from 'class-validator';
 
 export class SetCartItemDto {
   @ApiProperty({ minimum: 1, maximum: 99, example: 2 })
@@ -20,7 +22,7 @@ export class CartItemDto {
   @ApiProperty() quantity!: number;
   @ApiPropertyOptional({ nullable: true }) currentUnitPriceMinor!: number | null;
   @ApiPropertyOptional({ nullable: true }) currentLinePriceMinor!: number | null;
-  @ApiProperty({ example: 'USD' }) currency!: 'USD';
+  @ApiProperty({ example: 'USD' }) currency!: SupportedCurrency;
   @ApiProperty() available!: number;
   @ApiProperty() purchasable!: boolean;
   @ApiPropertyOptional({ nullable: true }) media!: CartItemMediaDto | null;
@@ -34,11 +36,28 @@ export class CartItemMediaDto {
 }
 
 export class CartDto {
+  @ApiProperty({ enum: SHOPPING_MARKETS }) market!: InternationalMarketCode;
+  @ApiProperty({ enum: ['exclusive'] }) taxTreatment!: 'exclusive';
   @ApiProperty() revision!: number;
-  @ApiProperty({ example: 'USD' }) currency!: 'USD';
+  @ApiProperty({ example: 'USD' }) currency!: SupportedCurrency;
   @ApiPropertyOptional({ nullable: true }) subtotalMinor!: number | null;
   @ApiPropertyOptional({ nullable: true }) totalMinor!: number | null;
   @ApiProperty() hasUnavailableItems!: boolean;
   @ApiProperty() expiresAt!: string;
   @ApiProperty({ type: [CartItemDto] }) items!: CartItemDto[];
+}
+
+export class PreviewCartMarketDto {
+  @ApiProperty({ enum: SHOPPING_MARKETS })
+  @IsIn(SHOPPING_MARKETS)
+  market!: InternationalMarketCode;
+}
+export class ConfirmCartMarketDto extends PreviewCartMarketDto {
+  @ApiProperty({ pattern: '^[a-f0-9]{64}$' })
+  @Matches(/^[a-f0-9]{64}$/u)
+  pricingFingerprint!: string;
+}
+export class CartMarketPreviewDto {
+  @ApiProperty({ type: CartDto }) cart!: CartDto;
+  @ApiProperty() pricingFingerprint!: string;
 }

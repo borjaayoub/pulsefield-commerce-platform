@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { seedInternationalCommerce } from '../../prisma/seed-international-commerce';
+import { setUsShoppingReservationDuration } from '../testing/shopping-fixtures';
 import { seedPhase3Commerce } from '../../prisma/seed-commerce';
 import { AuditService } from '../audit/audit.service';
 import { CartService } from '../cart/cart.service';
@@ -58,6 +60,7 @@ describe('reservation expiry and staff fulfillment database integration', () => 
   beforeEach(async () => {
     await clearCommerceData(prisma);
     await seedPhase3Commerce(prisma);
+    await seedInternationalCommerce(prisma);
     await createActivePolicy(prisma);
   });
 
@@ -911,6 +914,7 @@ async function retirePolicyAndCreateShortPolicy(prisma: PrismaService): Promise<
       calculationVersion: 'us-usd-expiry-test',
     },
   });
+  await setUsShoppingReservationDuration(prisma, 1);
 }
 
 async function clearCommerceData(prisma: PrismaService): Promise<void> {

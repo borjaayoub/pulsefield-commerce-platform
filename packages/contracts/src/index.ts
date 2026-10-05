@@ -1,5 +1,6 @@
 export type ActorType = 'customer' | 'staff' | 'system';
 export * from './realtime';
+export type * from './international-commerce';
 
 export interface CommerceModuleDefinition {
   key: string;

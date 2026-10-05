@@ -17,6 +17,27 @@ export class CheckoutRequestError extends Error {
   }
 }
 
+export class CheckoutMarketMismatchError extends CheckoutConflictError {
+  readonly requiredCurrency: 'USD' | 'MAD' | 'EUR' | 'GBP';
+  constructor(
+    readonly currentMarket: string,
+    readonly requiredMarket: 'US' | 'MA' | 'EU' | 'UK',
+    readonly cartRevision: number,
+  ) {
+    super('CART_MARKET_MISMATCH', 'Confirm the destination market on the cart before checkout.');
+    this.requiredCurrency = { US: 'USD', MA: 'MAD', EU: 'EUR', UK: 'GBP' }[
+      requiredMarket
+    ] as typeof this.requiredCurrency;
+  }
+}
+
+export class RegionalPaymentProviderUnavailableError extends Error {
+  readonly code = 'REGIONAL_PAYMENT_PROVIDER_UNAVAILABLE';
+  constructor() {
+    super('The configured payment provider is unavailable for this market.');
+  }
+}
+
 export class CheckoutPaymentUnavailableError extends Error {
   readonly code = 'PAYMENT_PROVIDER_UNAVAILABLE';
 

@@ -2,7 +2,12 @@ import { validateLocalProfile } from '@pulse-field/foundation';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { createApiApp } from '../create-api-app';
-import { CartRevisionConflictError, CartRevisionRequiredError } from './cart.errors';
+import {
+  CartRevisionConflictError,
+  CartRevisionRequiredError,
+  CartMarketPreviewStaleError,
+} from './cart.errors';
+import { CommerceConfigurationUnavailableError } from '../checkout/shopping-configuration.service';
 import { CartService } from './cart.service';
 import type { CartDto } from './cart.dto';
 import { RedisThrottlerStorage } from '../rate-limit/redis-throttler.storage';
@@ -34,9 +39,13 @@ describe('anonymous cart HTTP contract', () => {
   const getCurrent = jest.spyOn(CartService.prototype, 'getCurrent');
   const setItem = jest.spyOn(CartService.prototype, 'setItem');
   const removeItem = jest.spyOn(CartService.prototype, 'removeItem');
+  const previewMarket = jest.spyOn(CartService.prototype, 'previewMarket');
+  const confirmMarket = jest.spyOn(CartService.prototype, 'confirmMarket');
   const increment = jest.spyOn(RedisThrottlerStorage.prototype, 'increment');
   const token = Buffer.alloc(32, 8).toString('base64url');
   const cart = {
+    market: 'US',
+    taxTreatment: 'exclusive',
     revision: 2,
     currency: 'USD',
     subtotalMinor: 4800,
@@ -54,6 +63,16 @@ describe('anonymous cart HTTP contract', () => {
     await app.close();
   });
   beforeEach(() => {
+    previewMarket.mockResolvedValue({
+      cart: { ...cart, market: 'EU', currency: 'EUR' },
+      token,
+      pricingFingerprint: 'a'.repeat(64),
+    });
+    confirmMarket.mockResolvedValue({
+      cart: { ...cart, revision: 3, market: 'EU', currency: 'EUR' },
+      token,
+      pricingFingerprint: 'a'.repeat(64),
+    });
     getCurrent.mockResolvedValue({ cart: { ...cart, revision: 1 }, token, createdCookie: false });
     setItem.mockResolvedValue({ cart, revision: 2, token, createdCookie: false, changed: true });
     removeItem.mockResolvedValue({
@@ -69,6 +88,103 @@ describe('anonymous cart HTTP contract', () => {
       isBlocked: false,
       timeToBlockExpire: 0,
     });
+  });
+
+  it('returns a no-store repricing preview and confirms it with scoped cookie and ETag', async () => {
+    const preview = await request(app.getHttpServer())
+      .post('/api/v1/cart/market-preview')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-2"')
+      .send({ market: 'EU' });
+    expect(preview.status).toBe(200);
+    expect(preview.headers['cache-control']).toBe('no-store');
+    expect(preview.headers.etag).toBe('"cart-2"');
+    expect(preview.body).toMatchObject({
+      cart: { market: 'EU', currency: 'EUR', taxTreatment: 'exclusive' },
+      pricingFingerprint: 'a'.repeat(64),
+    });
+    expect(preview.body.token).toBeUndefined();
+    expect(previewMarket).toHaveBeenCalledWith(token, 'EU', 2);
+    const confirmed = await request(app.getHttpServer())
+      .put('/api/v1/cart/market')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-2"')
+      .send({ market: 'EU', pricingFingerprint: 'a'.repeat(64) });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.headers['cache-control']).toBe('no-store');
+    expect(confirmed.headers.etag).toBe('"cart-3"');
+    expect(confirmed.headers['set-cookie'][0]).toContain('HttpOnly');
+    expect(confirmMarket).toHaveBeenCalledWith(token, 'EU', 'a'.repeat(64), 2);
+  });
+
+  it.each([
+    { market: 'eu' },
+    { market: 'GB' },
+    { market: ['EU'] },
+    { market: 'EU', currency: 'USD' },
+    {},
+  ])('rejects invalid market preview body %j before service execution', async (body) => {
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/cart/market-preview')
+      .set('If-Match', '"cart-2"')
+      .send(body);
+    expect(response.status).toBe(400);
+    expect(previewMarket).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { market: 'EU' },
+    { market: 'EU', pricingFingerprint: 'bad' },
+    { market: 'EU', pricingFingerprint: 'a'.repeat(64), prices: [1] },
+  ])('rejects invalid market confirmation body %j before execution', async (body) => {
+    const response = await request(app.getHttpServer())
+      .put('/api/v1/cart/market')
+      .set('If-Match', '"cart-2"')
+      .send(body);
+    expect(response.status).toBe(400);
+    expect(confirmMarket).not.toHaveBeenCalled();
+  });
+
+  it('enforces origin protection and fails closed when the rate limiter is unavailable on market endpoints', async () => {
+    const crossSite = await request(app.getHttpServer())
+      .put('/api/v1/cart/market')
+      .set('Origin', 'http://localhost:9999')
+      .set('If-Match', '"cart-2"')
+      .send({ market: 'EU', pricingFingerprint: 'a'.repeat(64) });
+    expect(crossSite.status).toBe(403);
+    expect(confirmMarket).not.toHaveBeenCalled();
+    increment.mockRejectedValueOnce(new RateLimitStorageUnavailableError());
+    const unavailable = await request(app.getHttpServer())
+      .post('/api/v1/cart/market-preview')
+      .send({ market: 'EU' });
+    expect(unavailable.status).toBe(503);
+    expect(previewMarket).not.toHaveBeenCalled();
+  });
+
+  it('maps missing revisions, stale repricing and unavailable configuration to safe public errors', async () => {
+    previewMarket.mockRejectedValueOnce(new CartRevisionRequiredError());
+    expect(
+      (
+        await request(app.getHttpServer())
+          .post('/api/v1/cart/market-preview')
+          .send({ market: 'EU' })
+      ).status,
+    ).toBe(428);
+    confirmMarket.mockRejectedValueOnce(new CartMarketPreviewStaleError());
+    const stale = await request(app.getHttpServer())
+      .put('/api/v1/cart/market')
+      .set('If-Match', '"cart-2"')
+      .send({ market: 'EU', pricingFingerprint: 'a'.repeat(64) });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('CART_MARKET_PREVIEW_STALE');
+    previewMarket.mockRejectedValueOnce(new CommerceConfigurationUnavailableError());
+    const missing = await request(app.getHttpServer())
+      .post('/api/v1/cart/market-preview')
+      .set('If-Match', '"cart-2"')
+      .send({ market: 'EU' });
+    expect(missing.status).toBe(503);
+    expect(missing.body.code).toBe('COMMERCE_CONFIGURATION_UNAVAILABLE');
+    expect(JSON.stringify(missing.body)).not.toContain(token);
   });
 
   it('requires and strictly parses a revision for an existing cookie cart', async () => {

@@ -4,7 +4,12 @@ import request from 'supertest';
 import { createApiApp } from '../create-api-app';
 import { RedisThrottlerStorage } from '../rate-limit/redis-throttler.storage';
 import { RateLimitStorageUnavailableError } from '../rate-limit/rate-limit.errors';
-import { CheckoutConflictError, CheckoutPaymentUnavailableError } from './checkout.errors';
+import {
+  CheckoutConflictError,
+  CheckoutPaymentUnavailableError,
+  CheckoutMarketMismatchError,
+  RegionalPaymentProviderUnavailableError,
+} from './checkout.errors';
 import type { CheckoutPreviewResponseDto, CheckoutResponseDto } from './checkout.dto';
 import { CheckoutService } from './checkout.service';
 
@@ -369,5 +374,52 @@ describe('checkout HTTP contract', () => {
     expect(properties.fulfillmentStatus.nullable).toBe(true);
     expect(properties.reservationExpiresAt).toBeDefined();
     expect(properties.checkoutStatus).toBeDefined();
+  });
+  it('returns safe destination mismatch extensions without leaking cart credentials', async () => {
+    preview.mockRejectedValueOnce(new CheckoutMarketMismatchError('US', 'EU', 7));
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/checkouts/preview')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-7"')
+      .send({ shippingAddress: address });
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      code: 'CART_MARKET_MISMATCH',
+      currentMarket: 'US',
+      requiredMarket: 'EU',
+      requiredCurrency: 'EUR',
+      cartRevision: 7,
+    });
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(JSON.stringify(response.body)).not.toContain(token);
+  });
+  it('accepts normalized regional addresses and rejects partial GB codes before service invocation', async () => {
+    const regional = { ...address, state: undefined, countryCode: 'GB', postalCode: ' sw1a 1aa ' };
+    await request(app.getHttpServer())
+      .post('/api/v1/checkouts/preview')
+      .set('If-Match', '"cart-7"')
+      .send({ shippingAddress: regional })
+      .expect(200);
+    expect(preview).toHaveBeenLastCalledWith(undefined, 7, {
+      shippingAddress: { ...regional, postalCode: 'SW1A 1AA' },
+    });
+    preview.mockClear();
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/checkouts/preview')
+      .set('If-Match', '"cart-7"')
+      .send({ shippingAddress: { ...regional, postalCode: 'SW1A' } });
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('REQUEST_VALIDATION_FAILED');
+    expect(preview).not.toHaveBeenCalled();
+  });
+  it('maps a regional provider restriction to a safe uncached 503', async () => {
+    preview.mockRejectedValueOnce(new RegionalPaymentProviderUnavailableError());
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/checkouts/preview')
+      .set('If-Match', '"cart-7"')
+      .send({ shippingAddress: address });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('REGIONAL_PAYMENT_PROVIDER_UNAVAILABLE');
+    expect(response.headers['cache-control']).toBe('no-store');
   });
 });

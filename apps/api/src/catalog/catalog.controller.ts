@@ -13,6 +13,7 @@ import {
   CatalogProductDto,
   CatalogQueryDto,
   CatalogRedirectDto,
+  CatalogMarketQueryDto,
 } from './catalog.dto';
 import { CatalogService } from './catalog.service';
 
@@ -22,7 +23,7 @@ export class CatalogController {
   constructor(private readonly catalog: CatalogService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List active US/USD storefront products.' })
+  @ApiOperation({ summary: 'List active products in the selected market.' })
   @ApiOkResponse({ type: CatalogListDto })
   @ApiResponse({ status: 400, type: ProblemDetailsDto })
   async list(@Query() query: CatalogQueryDto): Promise<CatalogListDto> {
@@ -38,12 +39,19 @@ export class CatalogController {
     description: 'Historical slug redirect to the canonical slug.',
   })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
-  async detail(@Param('slug') slug: string, @Res() response: Response): Promise<void> {
-    const result = await this.catalog.getBySlug(slug);
+  async detail(
+    @Param('slug') slug: string,
+    @Res() response: Response,
+    @Query() query: CatalogMarketQueryDto = new CatalogMarketQueryDto(),
+  ): Promise<void> {
+    const result = await this.catalog.getBySlug(slug, query.market);
     if (result.canonicalSlug !== slug) {
       response
         .status(301)
-        .setHeader('Location', `/api/v1/catalog/products/${result.canonicalSlug}`)
+        .setHeader(
+          'Location',
+          `/api/v1/catalog/products/${result.canonicalSlug}${query.market ? `?market=${query.market}` : ''}`,
+        )
         .json({
           type: 'urn:pulse-field:catalog:canonical-slug-redirect',
           canonicalSlug: result.canonicalSlug,

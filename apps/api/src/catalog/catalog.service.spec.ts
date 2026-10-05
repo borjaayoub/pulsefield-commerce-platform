@@ -1,5 +1,9 @@
 import type { PrismaService } from '../database/prisma.service';
 import { CatalogAvailability, CatalogQueryDto, CatalogSort } from './catalog.dto';
+import {
+  ShoppingConfigurationService,
+  type ShoppingConfiguration,
+} from '../checkout/shopping-configuration.service';
 import { CatalogService } from './catalog.service';
 
 function productRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -57,10 +61,31 @@ describe('CatalogService', () => {
   const count = jest.fn();
   const findMany = jest.fn();
   const findUnique = jest.fn();
-  const service = new CatalogService({
-    product: { count, findMany },
-    productSlug: { findUnique },
-  } as unknown as PrismaService);
+  const config: ShoppingConfiguration = {
+    market: 'US',
+    currency: 'USD',
+    configurationId: 'config',
+    configurationVersion: 1,
+    priceBookVersionId: 'prices',
+    allocationPolicyVersionId: 'route',
+    taxRateBasisPoints: 825,
+    shippingBaseMinor: 800,
+    freeShippingThresholdMinor: 12000,
+    heavyThresholdGrams: 2000,
+    heavySurchargeBasisPoints: 5000,
+    reservationDurationSeconds: 600,
+  };
+  const configurations = new ShoppingConfigurationService();
+  jest.spyOn(configurations, 'resolve').mockResolvedValue(config);
+  const tx = { product: { count, findMany }, productSlug: { findUnique } };
+  const service = new CatalogService(
+    {
+      $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+      product: { count, findMany },
+      productSlug: { findUnique },
+    } as unknown as PrismaService,
+    configurations,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();

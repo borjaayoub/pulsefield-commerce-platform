@@ -1,3 +1,4 @@
+import type { SupportedCurrency } from '@pulse-field/contracts';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class OrderTimelineLineDto {
@@ -53,7 +54,7 @@ export class OrderTimelineDto {
     enum: ['PREPARING', 'PARTIALLY_SHIPPED', 'SHIPPED', 'PARTIALLY_DELIVERED', 'DELIVERED'],
   })
   fulfillmentProgress!: string;
-  @ApiProperty() currency!: 'USD';
+  @ApiProperty() currency!: SupportedCurrency;
   @ApiProperty() subtotalMinor!: number;
   @ApiProperty() shippingMinor!: number;
   @ApiProperty() taxMinor!: number;

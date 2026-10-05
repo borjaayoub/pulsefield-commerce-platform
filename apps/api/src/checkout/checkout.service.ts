@@ -1,5 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { PaymentProvider } from '@pulse-field/contracts';
+import {
+  resolveInternationalConfigurationInTransaction,
+  type ResolvedInternationalConfiguration,
+} from './international-commerce-configuration.reader';
+import {
+  calculateInternationalCommerce,
+  InternationalCommerceCalculationError,
+} from './international-commerce.calculation';
+import { destinationMarket, validPostalCode } from './shipping-address.validation';
+import type {
+  PaymentProvider,
+  SupportedCurrency,
+  InternationalCommerceCalculationResult,
+} from '@pulse-field/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import { Prisma } from '../generated/prisma/client';
@@ -11,7 +24,6 @@ import {
   OrderStatus,
   PaymentAttemptStatus,
   ReservationStatus,
-  CommercePolicyLifecycle,
 } from '../generated/prisma/enums';
 import { IdempotencyService, type IdempotencyClaim } from '../idempotency/idempotency.service';
 import { AuditService } from '../audit/audit.service';
@@ -33,6 +45,8 @@ import {
   CheckoutConflictError,
   CheckoutPaymentUnavailableError,
   CheckoutRequestError,
+  CheckoutMarketMismatchError,
+  RegionalPaymentProviderUnavailableError,
 } from './checkout.errors';
 import type {
   CreateCheckoutDto,
@@ -61,14 +75,7 @@ const CHECKOUT_CART_INCLUDE = {
     include: {
       variant: {
         include: {
-          prices: {
-            where: {
-              priceBookVersion: {
-                lifecycle: 'ACTIVE',
-                priceBook: { code: 'US-RETAIL', marketCode: 'US', currencyCode: 'USD' },
-              },
-            },
-          },
+          prices: true,
           product: {
             include: { media: { where: { status: 'ACTIVE' }, orderBy: { position: 'asc' } } },
           },
@@ -80,7 +87,8 @@ const CHECKOUT_CART_INCLUDE = {
 type CheckoutCart = Prisma.CartGetPayload<{ include: typeof CHECKOUT_CART_INCLUDE }>;
 
 type Totals = Omit<CheckoutPreviewResponseDto, 'paymentProvider'> & {
-  policyId: string;
+  calculation: InternationalCommerceCalculationResult;
+  configuration: ResolvedInternationalConfiguration;
   totalWeightGrams: number;
 };
 export type CheckoutPolicy = {
@@ -111,15 +119,15 @@ export function toIdempotencyShippingAddress(address: CreateCheckoutDto['shippin
   city: string;
   state: string;
   postalCode: string;
-  countryCode: 'US';
+  countryCode: string;
 } {
   return {
     fullName: address.fullName,
     line1: address.line1,
     line2: address.line2 ?? '',
     city: address.city,
-    state: address.state,
-    postalCode: address.postalCode,
+    state: address.state ?? '',
+    postalCode: address.postalCode.trim().toUpperCase(),
     countryCode: address.countryCode,
   };
 }
@@ -220,6 +228,11 @@ export function calculateUsdCheckoutTotals(
     totalWeightGrams,
   };
 }
+export function supportedOrderCurrency(value: string): SupportedCurrency {
+  if (value !== 'USD' && value !== 'MAD' && value !== 'EUR' && value !== 'GBP')
+    throw new CheckoutPaymentUnavailableError();
+  return value;
+}
 function asNumber(value: bigint): number {
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < 0)
@@ -254,18 +267,20 @@ export class CheckoutService {
         'CART_REVISION_REQUIRED',
         'The cart revision is required for checkout.',
       );
-    const { cart, policy } = await this.loadOpenCart(token);
-    if (cart.revision !== expectedRevision)
-      throw new CheckoutConflictError(
-        'CART_REVISION_CONFLICT',
-        'The cart changed since it was last read. Refresh and try again.',
-        cart.revision,
-      );
-    await this.assertCurrentAvailability(cart);
-    return {
-      ...this.calculate(cart, policy, body),
-      paymentProvider: this.configuredPaymentProvider,
-    };
+    return this.prisma.$transaction(
+      async (tx) => {
+        const { cart, configuration } = await this.loadOpenCart(tx, token, body);
+        if (cart.revision !== expectedRevision)
+          throw new CheckoutConflictError(
+            'CART_REVISION_CONFLICT',
+            'The cart changed since it was last read. Refresh and try again.',
+            cart.revision,
+          );
+        await this.assertCurrentAvailability(tx, cart, configuration);
+        return this.publicTotals(this.calculate(cart, configuration, body));
+      },
+      { isolationLevel: 'RepeatableRead' },
+    );
   }
 
   async create(
@@ -290,7 +305,14 @@ export class CheckoutService {
     this.assertPaymentRequest(body.paymentMethodReference);
     const cartIdentity = await this.prisma.cart.findUnique({
       where: { tokenDigest: digestCartToken(token) },
-      select: { id: true, status: true, revision: true, expiresAt: true, absoluteExpiresAt: true },
+      select: {
+        id: true,
+        marketCode: true,
+        status: true,
+        revision: true,
+        expiresAt: true,
+        absoluteExpiresAt: true,
+      },
     });
     const now = new Date();
     if (!cartIdentity)
@@ -301,21 +323,42 @@ export class CheckoutService {
       correlationId: requestId,
       actor: { type: 'customer' as const, id: cartIdentity.id, roles: [] },
     };
-    const claimResult = await this.idempotency.begin(
-      {
-        operation: 'checkout.create',
-        request: {
-          cartId: cartIdentity.id,
-          revision: expectedRevision,
-          pricingFingerprint: body.pricingFingerprint,
-          paymentProvider: this.configuredPaymentProvider,
-          paymentMethodReference: body.paymentMethodReference ?? null,
-          customerEmail: normalizeEmail(body.customerEmail),
-          shippingAddress: toIdempotencyShippingAddress(body.shippingAddress),
-        },
+    const input = {
+      operation: 'checkout.create',
+      request: {
+        cartId: cartIdentity.id,
+        revision: expectedRevision,
+        pricingFingerprint: body.pricingFingerprint,
+        paymentProvider: this.configuredPaymentProvider,
+        paymentMethodReference: body.paymentMethodReference ?? null,
+        customerEmail: normalizeEmail(body.customerEmail),
+        shippingAddress: toIdempotencyShippingAddress(body.shippingAddress),
       },
-      command,
-    );
+    };
+    const retained = await this.idempotency.retainedResult(input, command);
+    if (retained) return this.resumeOrRespond(retained.id, requestId);
+    if (cartIdentity.status === CartStatus.OPEN) {
+      await this.prisma.$transaction(
+        async (tx) => {
+          const loaded = await this.loadOpenCart(tx, token, body);
+          if (loaded.cart.revision !== expectedRevision)
+            throw new CheckoutConflictError(
+              'CART_REVISION_CONFLICT',
+              'The cart changed since it was last read. Refresh and try again.',
+              loaded.cart.revision,
+            );
+          const totals = this.calculate(loaded.cart, loaded.configuration, body);
+          if (totals.pricingFingerprint !== body.pricingFingerprint)
+            throw new CheckoutConflictError(
+              'PRICING_FINGERPRINT_CONFLICT',
+              'Pricing changed. Refresh the checkout preview and try again.',
+            );
+          await this.assertCurrentAvailability(tx, loaded.cart, loaded.configuration);
+        },
+        { isolationLevel: 'RepeatableRead' },
+      );
+    }
+    const claimResult = await this.idempotency.begin(input, command);
     if (claimResult.kind === 'replay')
       return this.resumeOrRespond(claimResult.result.id, requestId);
     if (claimResult.kind === 'in-progress')
@@ -335,7 +378,10 @@ export class CheckoutService {
     let preview: Totals | undefined;
     let orderId: string;
     try {
-      const loaded = await this.loadOpenCart(token, true);
+      const loaded = await this.prisma.$transaction(
+        (tx) => this.loadOpenCart(tx, token, body, true),
+        { isolationLevel: 'RepeatableRead' },
+      );
       cart = loaded.cart;
       const pendingCart = cart.status === CartStatus.CHECKOUT_PENDING;
       if (!pendingCart && cart.revision !== expectedRevision)
@@ -344,7 +390,7 @@ export class CheckoutService {
           'The cart changed since it was last read. Refresh and try again.',
           cart.revision,
         );
-      preview = pendingCart ? undefined : this.calculate(cart, loaded.policy, body);
+      preview = pendingCart ? undefined : this.calculate(cart, loaded.configuration, body);
       if (preview && preview.pricingFingerprint !== body.pricingFingerprint)
         throw new CheckoutConflictError(
           'PRICING_FINGERPRINT_CONFLICT',
@@ -393,6 +439,7 @@ export class CheckoutService {
       cartId: string;
       reference: string;
       totalMinor: bigint;
+      currencyCode: string;
       paymentAttempts: Array<{
         id: string;
         status: PaymentAttemptStatus;
@@ -411,7 +458,10 @@ export class CheckoutService {
       const result = await this.payments.createPayment(
         {
           orderId: order.id,
-          amount: { amountMinor: order.totalMinor, currency: 'USD' },
+          amount: {
+            amountMinor: order.totalMinor,
+            currency: supportedOrderCurrency(order.currencyCode),
+          },
           ...(this.configuredPaymentProvider === 'stub'
             ? { paymentMethodReference: attempt.paymentMethodReference }
             : {}),
@@ -509,20 +559,22 @@ export class CheckoutService {
   }
 
   private async loadOpenCart(
+    tx: Prisma.TransactionClient,
     token: string | undefined,
+    body: CheckoutPreviewDto,
     allowPending = false,
-  ): Promise<{ cart: CheckoutCart; policy: CheckoutPolicy }> {
+  ): Promise<{ cart: CheckoutCart; configuration: ResolvedInternationalConfiguration }> {
     if (!token)
       throw new CheckoutConflictError('CART_NOT_FOUND', 'A current cart is required for checkout.');
-    const now = new Date();
-    const cart = await this.prisma.cart.findUnique({
+    const [clock] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT CURRENT_TIMESTAMP AS now`;
+    const cart = await tx.cart.findUnique({
       where: { tokenDigest: digestCartToken(token) },
       include: CHECKOUT_CART_INCLUDE,
     });
     if (
       !cart ||
-      cart.expiresAt <= now ||
-      cart.absoluteExpiresAt <= now ||
+      cart.expiresAt <= clock.now ||
+      cart.absoluteExpiresAt <= clock.now ||
       cart.status === CartStatus.CONVERTED
     )
       throw new CheckoutConflictError('CART_NOT_FOUND', 'A current cart is required for checkout.');
@@ -531,35 +583,43 @@ export class CheckoutService {
         'CART_CHECKOUT_PENDING',
         'The cart is being checked out. Try again shortly.',
       );
-    if (cart.items.length === 0)
+    this.assertDestination(cart, body);
+    if (!cart.items.length)
       throw new CheckoutConflictError('CART_EMPTY', 'Add an item before checkout.');
-    const policy = await this.prisma.commercePolicyVersion.findFirst({
-      where: {
-        countryCode: 'US',
-        currencyCode: 'USD',
-        lifecycle: CommercePolicyLifecycle.ACTIVE,
-        effectiveFrom: { lte: now },
-        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
-      },
-      orderBy: { version: 'desc' },
-    });
-    if (!policy)
-      throw new CheckoutConflictError(
-        'COMMERCE_POLICY_UNAVAILABLE',
-        'Checkout is temporarily unavailable.',
-      );
-    return { cart, policy };
+    const configuration = await resolveInternationalConfigurationInTransaction(
+      tx,
+      body.shippingAddress.countryCode,
+    );
+    return { cart, configuration };
   }
 
-  private calculate(cart: CheckoutCart, policy: CheckoutPolicy, body: CheckoutPreviewDto): Totals {
-    if (body.shippingAddress.countryCode !== 'US')
-      throw new CheckoutConflictError(
-        'ADDRESS_NOT_SUPPORTED',
-        'Only US shipping addresses are supported in this demo.',
-      );
+  private assertDestination(
+    cart: Pick<CheckoutCart, 'marketCode' | 'revision'>,
+    body: CheckoutPreviewDto,
+  ): void {
+    const address = toIdempotencyShippingAddress(body.shippingAddress);
+    const market = destinationMarket(address.countryCode);
+    if (
+      !market ||
+      !validPostalCode(address.countryCode, address.postalCode) ||
+      (address.countryCode === 'US' && !/^[A-Z]{2}$/u.test(address.state))
+    )
+      throw new CheckoutRequestError();
+    if (market !== cart.marketCode)
+      throw new CheckoutMarketMismatchError(cart.marketCode, market, cart.revision);
+    if (this.configuredPaymentProvider === 'stripe' && market !== 'US')
+      throw new RegionalPaymentProviderUnavailableError();
+  }
+
+  private calculate(
+    cart: CheckoutCart,
+    configuration: ResolvedInternationalConfiguration,
+    body: CheckoutPreviewDto,
+  ): Totals {
+    this.assertDestination(cart, body);
     const sourceLines = cart.items.map((item) => {
       const price = item.variant.prices.find(
-        (candidate) => candidate.priceBookVersionId === policy.priceBookVersionId,
+        (candidate) => candidate.priceBookVersionId === configuration.priceBookVersionId,
       );
       if (
         item.variant.status !== CatalogLifecycle.ACTIVE ||
@@ -573,59 +633,94 @@ export class CheckoutService {
       return {
         variantId: item.variantId,
         quantity: item.quantity,
+        currency: configuration.currency,
         unitPriceMinor: asNumber(price.amountMinor),
         weightGrams: item.variant.weightGrams,
       };
     });
-    const calculated = calculateUsdCheckoutTotals(sourceLines, policy);
+    let calculation: InternationalCommerceCalculationResult;
+    try {
+      calculation = calculateInternationalCommerce({
+        version: 1,
+        market: configuration.market,
+        currency: configuration.currency,
+        lines: sourceLines,
+        policy: configuration.policy,
+        reportingRate: configuration.reportingRate,
+      });
+    } catch (error) {
+      if (error instanceof InternationalCommerceCalculationError)
+        throw new CheckoutConflictError('CHECKOUT_UNAVAILABLE', UNSAFE_CHECKOUT_VALUE_MESSAGE);
+      throw error;
+    }
     const pricingFingerprint = hash({
       cartId: cart.id,
       revision: cart.revision,
-      policyId: policy.id,
-      policyVersion: policy.version,
-      priceBookVersionId: policy.priceBookVersionId,
-      calculationVersion: policy.calculationVersion,
-      shippingBaseMinor: policy.shippingBaseMinor,
-      freeShippingThresholdMinor: policy.freeShippingThresholdMinor,
-      heavySurchargeMinor: policy.heavySurchargeMinor,
-      heavyThresholdGrams: policy.heavyThresholdGrams,
-      taxRateBasisPoints: policy.taxRateBasisPoints,
-      lines: calculated.lines,
-      subtotal: calculated.subtotalMinor,
-      shipping: calculated.shippingMinor,
-      tax: calculated.taxMinor,
-      totalMinor: calculated.totalMinor,
-      countryCode: body.shippingAddress.countryCode,
+      address: toIdempotencyShippingAddress(body.shippingAddress),
+      configuration,
+      calculation,
     });
     return {
-      policyId: policy.id,
-      currency: 'USD',
-      policyVersion: policy.version,
-      lines: calculated.lines,
-      subtotalMinor: calculated.subtotalMinor,
-      shippingMinor: calculated.shippingMinor,
-      taxMinor: calculated.taxMinor,
-      totalMinor: calculated.totalMinor,
+      configuration,
+      calculation,
+      currency: configuration.currency,
+      market: configuration.market,
+      configurationId: configuration.policy.configurationId,
+      taxTreatment: 'exclusive',
+      policyVersion: configuration.policy.configurationVersion,
+      lines: calculation.lines.map((line) => ({
+        variantId: line.variantId,
+        quantity: line.quantity,
+        unitPriceMinor: line.unitPriceMinor,
+        subtotalMinor: line.subtotalMinor,
+        taxMinor: line.taxMinor,
+      })),
+      subtotalMinor: calculation.subtotalMinor,
+      shippingMinor: calculation.shippingMinor,
+      taxMinor: calculation.taxMinor,
+      totalMinor: calculation.totalMinor,
+      totalWeightGrams: calculation.totalWeightGrams,
       pricingFingerprint,
       taxNotice: TAX_NOTICE,
-      totalWeightGrams: calculated.totalWeightGrams,
     };
   }
 
-  private async assertCurrentAvailability(cart: CheckoutCart): Promise<void> {
+  private publicTotals(totals: Totals): CheckoutPreviewResponseDto {
+    return {
+      paymentProvider: this.configuredPaymentProvider,
+      currency: totals.currency,
+      market: totals.market,
+      configurationId: totals.configurationId,
+      taxTreatment: totals.taxTreatment,
+      policyVersion: totals.policyVersion,
+      lines: totals.lines,
+      subtotalMinor: totals.subtotalMinor,
+      shippingMinor: totals.shippingMinor,
+      taxMinor: totals.taxMinor,
+      totalMinor: totals.totalMinor,
+      pricingFingerprint: totals.pricingFingerprint,
+      taxNotice: totals.taxNotice,
+    };
+  }
+
+  private async assertCurrentAvailability(
+    tx: Prisma.TransactionClient,
+    cart: CheckoutCart,
+    configuration: ResolvedInternationalConfiguration,
+  ): Promise<void> {
     let decision: Awaited<ReturnType<typeof readInventoryAllocation>>;
     try {
       decision = await readInventoryAllocation(
-        this.prisma,
+        tx,
         cart.items.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
+        configuration.allocationPolicyVersionId,
       );
     } catch (error) {
-      if (error instanceof InventoryAllocationPolicyUnavailableError) {
+      if (error instanceof InventoryAllocationPolicyUnavailableError)
         throw new CheckoutConflictError(
           'CHECKOUT_UNAVAILABLE',
           'Checkout is temporarily unavailable.',
         );
-      }
       throw error;
     }
     if (!decision)
@@ -649,6 +744,11 @@ export class CheckoutService {
           where: { id: cartId },
           include: CHECKOUT_CART_INCLUDE,
         });
+        this.assertDestination(lockedCart, body);
+        const configuration = await resolveInternationalConfigurationInTransaction(
+          tx,
+          body.shippingAddress.countryCode,
+        );
         if (lockedCart.status !== CartStatus.OPEN || lockedCart.revision !== revision)
           throw new CheckoutConflictError(
             'CART_REVISION_CONFLICT',
@@ -665,6 +765,7 @@ export class CheckoutService {
           allocationDecision = await lockInventoryAllocation(
             tx,
             variants.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
+            configuration.allocationPolicyVersionId,
           );
         } catch (error) {
           if (error instanceof InventoryAllocationPolicyUnavailableError) {
@@ -683,41 +784,15 @@ export class CheckoutService {
         const [{ now }] = await tx.$queryRaw<
           Array<{ now: Date }>
         >`SELECT CURRENT_TIMESTAMP AS "now"`;
-        const policy = await tx.commercePolicyVersion.findFirst({
-          where: {
-            countryCode: 'US',
-            currencyCode: 'USD',
-            lifecycle: CommercePolicyLifecycle.ACTIVE,
-            effectiveFrom: { lte: now },
-            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
-          },
-          orderBy: { version: 'desc' },
-        });
-        if (!policy)
+        if (lockedCart.expiresAt <= now || lockedCart.absoluteExpiresAt <= now)
           throw new CheckoutConflictError(
-            'COMMERCE_POLICY_UNAVAILABLE',
-            'Checkout is temporarily unavailable.',
+            'CART_NOT_FOUND',
+            'A current cart is required for checkout.',
           );
-        const priceBookVersion = await tx.priceBookVersion.findUnique({
-          where: { id: policy.priceBookVersionId },
-          select: {
-            id: true,
-            version: true,
-            lifecycle: true,
-            priceBook: { select: { code: true, marketCode: true, currencyCode: true } },
-          },
+        const priceBookVersion = await tx.priceBookVersion.findUniqueOrThrow({
+          where: { id: configuration.priceBookVersionId },
+          select: { version: true },
         });
-        if (
-          !priceBookVersion ||
-          priceBookVersion.lifecycle !== 'ACTIVE' ||
-          priceBookVersion.priceBook.code !== 'US-RETAIL' ||
-          priceBookVersion.priceBook.marketCode !== 'US' ||
-          priceBookVersion.priceBook.currencyCode !== 'USD'
-        )
-          throw new CheckoutConflictError(
-            'COMMERCE_POLICY_UNAVAILABLE',
-            'Checkout is temporarily unavailable.',
-          );
         const cart = await tx.cart.findUniqueOrThrow({
           where: { id: cartId },
           include: CHECKOUT_CART_INCLUDE,
@@ -728,7 +803,7 @@ export class CheckoutService {
             'The cart changed since it was last read. Refresh and try again.',
             cart.revision,
           );
-        const authoritativeTotals = this.calculate(cart, policy, body);
+        const authoritativeTotals = this.calculate(cart, configuration, body);
         if (authoritativeTotals.pricingFingerprint !== body.pricingFingerprint)
           throw new CheckoutConflictError(
             'PRICING_FINGERPRINT_CONFLICT',
@@ -736,7 +811,7 @@ export class CheckoutService {
           );
         const reservation = await tx.inventoryReservation.create({
           data: {
-            expiresAt: new Date(now.getTime() + policy.reservationDurationSeconds * 1000),
+            expiresAt: new Date(now.getTime() + configuration.reservationDurationSeconds * 1000),
             allocationPolicyVersionId: allocationDecision.policyVersionId,
           },
         });
@@ -792,34 +867,36 @@ export class CheckoutService {
           data: {
             reference,
             cartId,
-            policyVersionId: policy.id,
-            priceBookVersionId: policy.priceBookVersionId,
+            commerceMarketVersionId: configuration.policy.configurationId,
+            reportingRateVersionId: configuration.reportingRate.revisionId,
+            priceBookVersionId: configuration.priceBookVersionId,
             reservationId: reservation.id,
-            currencyCode: 'USD',
+            currencyCode: configuration.currency,
             subtotalMinor: authoritativeTotals.subtotalMinor,
             shippingMinor: authoritativeTotals.shippingMinor,
             taxMinor: authoritativeTotals.taxMinor,
             totalMinor: authoritativeTotals.totalMinor,
+            reportingSubtotalMinor: authoritativeTotals.calculation.reporting.subtotalMinor,
+            reportingShippingMinor: authoritativeTotals.calculation.reporting.shippingMinor,
+            reportingTaxMinor: authoritativeTotals.calculation.reporting.taxMinor,
+            reportingTotalMinor: authoritativeTotals.calculation.reporting.totalMinor,
+            reportingRoundingAdjustmentMinor:
+              authoritativeTotals.calculation.reporting.roundingAdjustmentMinor,
             calculationSnapshot: {
-              policyId: policy.id,
-              policyVersion: policy.version,
-              priceBookVersionId: policy.priceBookVersionId,
+              schemaVersion: 2,
+              ...(JSON.parse(
+                JSON.stringify(authoritativeTotals.calculation),
+              ) as Prisma.InputJsonObject),
+              priceBookVersionId: configuration.priceBookVersionId,
               priceBookVersion: priceBookVersion.version,
-              currencyCode: 'USD',
+              allocationPolicyVersionId: configuration.allocationPolicyVersionId,
+              countryCode: body.shippingAddress.countryCode,
+              reservationDurationSeconds: configuration.reservationDurationSeconds,
               pricingFingerprint: authoritativeTotals.pricingFingerprint,
-              shippingBaseMinor: policy.shippingBaseMinor,
-              freeShippingThresholdMinor: policy.freeShippingThresholdMinor,
-              heavySurchargeMinor: policy.heavySurchargeMinor,
-              heavyThresholdGrams: policy.heavyThresholdGrams,
-              taxRateBasisPoints: policy.taxRateBasisPoints,
-              rounding: 'half-up-per-line',
-              calculationVersion: policy.calculationVersion,
-              reservationDurationSeconds: policy.reservationDurationSeconds,
-              totalWeightGrams: authoritativeTotals.totalWeightGrams,
               simulatedTax: true,
               taxNotice: TAX_NOTICE,
             },
-            shippingAddressSnapshot: body.shippingAddress as unknown as Prisma.InputJsonValue,
+            shippingAddressSnapshot: toIdempotencyShippingAddress(body.shippingAddress),
             customerEmailNormalized: normalizeEmail(body.customerEmail),
             lines: {
               create: cart.items.map((item) => {
@@ -858,7 +935,7 @@ export class CheckoutService {
             status: this.payments.initialAttemptStatus ?? PaymentAttemptStatus.PROCESSING,
             paymentMethodReference: body.paymentMethodReference ?? 'stripe-card',
             amountMinor: authoritativeTotals.totalMinor,
-            currencyCode: 'USD',
+            currencyCode: configuration.currency,
           },
         });
         await tx.cart.update({
@@ -873,7 +950,7 @@ export class CheckoutService {
             targetId: reservation.id,
             afterMetadata: {
               orderId: order.id,
-              policyVersion: policy.version,
+              policyVersion: configuration.policy.configurationVersion,
               priceBookVersion: priceBookVersion.version,
             },
           },
@@ -905,6 +982,7 @@ export class CheckoutService {
       include: {
         lines: true,
         policyVersion: true,
+        commerceMarketVersion: { include: { market: true } },
         reservation: true,
         fulfillmentGroups: true,
         paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -918,8 +996,16 @@ export class CheckoutService {
     return {
       orderId: order.id,
       orderReference: order.reference,
-      currency: 'USD',
-      policyVersion: order.policyVersion.version,
+      currency: supportedOrderCurrency(order.currencyCode),
+      policyVersion: order.policyVersion?.version ?? order.commerceMarketVersion!.version,
+      ...(order.commerceMarketVersion
+        ? {
+            market: order.commerceMarketVersion.market
+              .code as InternationalCommerceCalculationResult['market'],
+            configurationId: order.commerceMarketVersionId!,
+            taxTreatment: 'exclusive' as const,
+          }
+        : {}),
       lines: order.lines.map((line) => ({
         variantId: line.variantId,
         quantity: line.quantity,

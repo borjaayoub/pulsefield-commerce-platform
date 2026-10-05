@@ -12,6 +12,9 @@ describe('CatalogController', () => {
 
   it('delegates bounded list queries to the catalog service', async () => {
     const result = {
+      market: 'US',
+      taxTreatment: 'exclusive',
+      currency: 'USD',
       items: [],
       page: 1,
       pageSize: 12,
@@ -46,6 +49,24 @@ describe('CatalogController', () => {
       type: 'urn:pulse-field:catalog:canonical-slug-redirect',
       canonicalSlug: 'canonical',
     });
+  });
+
+  it('preserves an explicitly selected market in the canonical slug redirect', async () => {
+    getBySlug.mockResolvedValue({
+      product: { id: 'product', slug: 'canonical' },
+      canonicalSlug: 'canonical',
+    });
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      setHeader: jest.fn().mockReturnThis(),
+      json: jest.fn().mockReturnThis(),
+    } as unknown as Response;
+    await controller.detail('old-slug', response, { market: 'EU' });
+    expect(getBySlug).toHaveBeenCalledWith('old-slug', 'EU');
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Location',
+      '/api/v1/catalog/products/canonical?market=EU',
+    );
   });
 
   it('returns canonical detail data with a 200 response', async () => {

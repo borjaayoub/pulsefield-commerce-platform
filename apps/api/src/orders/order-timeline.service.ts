@@ -152,7 +152,7 @@ export class OrderTimelineService {
       fulfillmentProgress: fulfillmentProgress(
         order.fulfillmentGroups.map((group) => group.status),
       ),
-      currency: 'USD',
+      currency: order.currencyCode as OrderTimelineDto['currency'],
       subtotalMinor: safeMoney(order.subtotalMinor),
       shippingMinor: safeMoney(order.shippingMinor),
       taxMinor: safeMoney(order.taxMinor),

@@ -4,6 +4,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client';
 import { seedPhase3Commerce } from './seed-commerce';
 import { seedDemoStaff } from './seed-demo-staff';
+import { seedInternationalCommerce } from './seed-international-commerce';
 
 loadEnvironment({ path: resolve(process.cwd(), '.env') });
 loadEnvironment({ path: resolve(process.cwd(), '../../.env') });
@@ -87,10 +88,11 @@ async function main(): Promise<void> {
     throw new Error('The deterministic seed requires exactly one active US/USD commerce policy.');
   }
   if (process.env.PHASE3_DEMO_MODE === 'true') await seedDemoStaff(prisma);
+  await seedInternationalCommerce(prisma);
 }
 
 void main()
   .then(() =>
-    process.stdout.write('Seeded Phase 1 foundation settings and Phase 3 commerce data.\n'),
+    process.stdout.write('Seeded foundation, US commerce and international demo configuration.\n'),
   )
   .finally(async () => prisma.$disconnect());
