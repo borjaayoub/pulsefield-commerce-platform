@@ -68,6 +68,7 @@ test.describe('guest order timeline shipments', () => {
 
   test('refreshes the fulfillment queue after a stale-version conflict', async ({ page }) => {
     let fulfillmentReads = 0;
+    let transitioned = false;
     await page.route('**/api/v1/auth/sessions/current', async (route) => {
       await route.fulfill({
         contentType: 'application/json',
@@ -79,7 +80,7 @@ test.describe('guest order timeline shipments', () => {
     });
     await page.route('**/api/v1/staff/operations/fulfillment?*', async (route) => {
       fulfillmentReads += 1;
-      const version = fulfillmentReads === 1 ? 2 : 3;
+      const version = transitioned ? 3 : 2;
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
@@ -89,7 +90,7 @@ test.describe('guest order timeline shipments', () => {
               orderReference: reference,
               orderFulfillmentProgress: 'PREPARING',
               warehouseCode: 'US-EAST-01',
-              status: fulfillmentReads === 1 ? 'PACKED' : 'SHIPPED',
+              status: transitioned ? 'SHIPPED' : 'PACKED',
               version,
               etag: `"fulfillment-${version}"`,
               carrierCode: null,
@@ -109,6 +110,7 @@ test.describe('guest order timeline shipments', () => {
     });
     await page.route('**/api/v1/staff/fulfillment-groups/group-1/transitions', async (route) => {
       expect(await route.request().headerValue('if-match')).toBe('"fulfillment-2"');
+      transitioned = true;
       await route.fulfill({
         status: 409,
         contentType: 'application/problem+json',

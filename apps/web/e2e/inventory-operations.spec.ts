@@ -461,9 +461,11 @@ test.describe('inventory operations controls', () => {
   test('refuses retry when the authenticated owner changes', async ({ page }) => {
     let sessionCalls = 0;
     let commandCalls = 0;
+    let ownerChanged = false;
     await mockOperations(page, {
       command: async (route) => {
         commandCalls += 1;
+        ownerChanged = true;
         await route.abort();
       },
     });
@@ -474,8 +476,8 @@ test.describe('inventory operations controls', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           ...auth,
-          user: { ...auth.user, id: sessionCalls > 1 ? 'admin-2' : 'admin-1' },
-          csrfToken: sessionCalls > 1 ? 'csrf-2' : 'csrf-1',
+          user: { ...auth.user, id: ownerChanged ? 'admin-2' : 'admin-1' },
+          csrfToken: ownerChanged ? 'csrf-2' : 'csrf-1',
         }),
       });
     });

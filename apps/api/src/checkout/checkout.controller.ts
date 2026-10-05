@@ -23,8 +23,8 @@ import {
   CheckoutResponseDto,
   CreateCheckoutDto,
 } from './checkout.dto';
-import { CheckoutRequestError } from './checkout.errors';
-import { CheckoutService } from './checkout.service';
+import { CheckoutRequestError, CheckoutTemporarilyUnavailableError } from './checkout.errors';
+import { CheckoutService, isRetryableTransactionError } from './checkout.service';
 
 const CHECKOUT_LIMIT = 20;
 function revision(value: string | undefined): number | undefined {
@@ -84,7 +84,12 @@ export class CheckoutController {
   @ApiCreatedResponse({ type: CheckoutResponseDto })
   @ApiResponse({ status: 409, type: ProblemDetailsDto })
   @ApiResponse({ status: 428, type: ProblemDetailsDto })
-  @ApiResponse({ status: 503, type: ProblemDetailsDto })
+  @ApiResponse({
+    status: 503,
+    type: ProblemDetailsDto,
+    description:
+      'Payment setup is unavailable or checkout contention requires the same request and idempotency key to be retried.',
+  })
   async create(
     @Body() body: CreateCheckoutDto,
     @Headers('if-match') ifMatch: string | undefined,
@@ -93,12 +98,17 @@ export class CheckoutController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<CheckoutResponseDto> {
     response.setHeader('Cache-Control', 'no-store');
-    return this.checkout.create(
-      readCartToken(request),
-      revision(ifMatch),
-      idempotencyKey,
-      body,
-      request.header('x-request-id') ?? 'request-unavailable',
-    );
+    try {
+      return await this.checkout.create(
+        readCartToken(request),
+        revision(ifMatch),
+        idempotencyKey,
+        body,
+        request.header('x-request-id') ?? 'request-unavailable',
+      );
+    } catch (error: unknown) {
+      if (isRetryableTransactionError(error)) throw new CheckoutTemporarilyUnavailableError();
+      throw error;
+    }
   }
 }

@@ -3,6 +3,8 @@ import { config as loadEnvironment } from 'dotenv';
 import path from 'node:path';
 
 loadEnvironment({ path: path.resolve(process.cwd(), '.env'), override: false });
+// Automatic DOM error snapshots can capture visible staff MFA enrollment secrets.
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
 
 export default defineConfig({
   testDir: './apps/web/e2e',

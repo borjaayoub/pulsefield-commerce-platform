@@ -37,6 +37,7 @@ import {
   CheckoutConflictError,
   CheckoutPaymentUnavailableError,
   CheckoutRequestError,
+  CheckoutTemporarilyUnavailableError,
 } from '../checkout/checkout.errors';
 import {
   FulfillmentConflictError,
@@ -118,7 +119,10 @@ function defineProblem(exception: unknown): ProblemDefinition {
       detail: exception.message,
     };
   }
-  if (exception instanceof CheckoutPaymentUnavailableError) {
+  if (
+    exception instanceof CheckoutPaymentUnavailableError ||
+    exception instanceof CheckoutTemporarilyUnavailableError
+  ) {
     return {
       status: HttpStatus.SERVICE_UNAVAILABLE,
       code: exception.code,

@@ -10,6 +10,21 @@ const scriptDirectory = __dirname;
 const apiRoot = path.resolve(scriptDirectory, '..');
 const repositoryRoot = path.resolve(apiRoot, '..', '..');
 
+// Optional exact integration files; reject other Jest flags/config overrides.
+const testFiles = process.argv.slice(2).map((file) => {
+  const resolved = path.resolve(repositoryRoot, file);
+  const relative = path.relative(path.join(apiRoot, 'src'), resolved);
+  if (
+    relative.startsWith('..') ||
+    path.isAbsolute(relative) ||
+    !resolved.endsWith('.integration.spec.ts') ||
+    !existsSync(resolved)
+  ) {
+    throw new Error('Integration test selection must name existing API source integration files.');
+  }
+  return resolved;
+});
+
 loadEnvironment({ path: path.join(apiRoot, '.env') });
 loadEnvironment({ path: path.join(repositoryRoot, '.env') });
 
@@ -105,7 +120,13 @@ async function main(): Promise<void> {
 
   run(
     process.execPath,
-    [jestCli, '--config', path.join(repositoryRoot, 'jest.integration.config.cjs'), '--runInBand'],
+    [
+      jestCli,
+      '--config',
+      path.join(repositoryRoot, 'jest.integration.config.cjs'),
+      '--runInBand',
+      ...(testFiles.length ? ['--runTestsByPath', ...testFiles] : []),
+    ],
     {
       ...process.env,
       NODE_ENV: 'test',

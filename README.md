@@ -4,7 +4,7 @@ This repository is a portfolio-grade, modular e-commerce platform built in demon
 
 ## Current milestone
 
-Phase 1 through Phase 4 and Phase 5 Slices 5.1–5.4 are implemented and verified. Phase 5.5 (committed-event realtime updates) is next. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for dated evidence and the distinction between canonical quality, guarded integration, and mocked browser checks.
+Phases 1–5 are complete. The user closed Phase 5 on 2026-10-01 with visual review deferred; this does not imply visual approval. Concurrency, live browser recovery and multiple API-process acceptance pass. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for dated evidence and the recorded sign-off.
 
 The protected Phase 3 operations dashboard is available at `/operations` after staff password and local TOTP MFA authentication. It uses masked, read-only projections; only fulfillers can advance the existing fulfillment path. Checkout defaults to the non-networked stub and seeded `US-EAST-01` warehouse; no Stripe or hosted payment service is required. Optional Stripe mode is test-only: it mounts the embedded Payment Element after server-owned checkout preparation, and only the verified asynchronous webhook/reconciliation path may confirm payment. Checkout collects an order-contact email, links guests to a digest-protected expiring timeline, and delivers confirmation only through the encrypted local Mailpit workflow after authoritative order confirmation.
 
@@ -86,12 +86,37 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm test:integration
+pnpm test:phase5
 pnpm test:e2e
 pnpm build
 pnpm quality
 ```
 
 `pnpm quality` is the dependency-free local gate and keeps database integration tests separate. With local PostgreSQL running, `pnpm test:integration` derives and guards a dedicated `pulsefield_test` database, applies committed migrations, and runs the real persistence tests. See [docs/testing.md](docs/testing.md) for the validation matrix and [docs/local-operations.md](docs/local-operations.md) for database safeguards.
+
+`pnpm test:phase5` runs the Phase 5 concurrency matrix against a fresh local
+`slice56_<random>_test` database. `pnpm test:phase5 --full` runs all guarded
+integration suites on a fresh target. Both use the existing source runner without
+TSX, retain their test database for inspection, and never migrate/reset/seed the
+development database. The focused matrix is database-service evidence; browser
+recovery and multiple API processes require separate rehearsals.
+
+`pnpm test:phase5:browser` runs real split checkout, inventory/transfer operations,
+independent fulfillment, Socket.IO disconnect/reconnect and role-denial checks.
+Build first, start the web application on localhost:3000, and leave API port
+4000 free. Local PostgreSQL and ephemeral Redis plus the ignored demo staff
+passwords are required. The runner migrates/seeds only a new owned `_test`
+database, starts and stops its own stub-payment API, and retains test data.
+See [the browser procedure](docs/testing.md#phase-56-live-browser-acceptance).
+
+`pnpm test:phase5:processes` runs 50 simultaneous HTTP checkouts through two
+owned local API processes on ports 4100/4101, sharing one fresh seeded `_test`
+database and isolated local cache. It needs the same build and local environment
+as browser acceptance, but no running web application. It retains test data and
+stops only its owned processes. Recognized checkout transaction contention
+returns a safe `503 CHECKOUT_TEMPORARILY_UNAVAILABLE`; the rehearsal retries the
+original request/key through the other process and verifies conserved inventory
+and unchanged replay effects. Unknown errors remain failures.
 
 ## Documentation
 

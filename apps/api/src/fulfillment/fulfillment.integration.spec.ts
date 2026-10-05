@@ -705,16 +705,14 @@ describe('reservation expiry and staff fulfillment database integration', () => 
     );
     await expect(
       prisma.$transaction(async (tx) => {
-        await tx.fulfillmentGroup.update({
-          where: { id: group.id },
-          data: {
-            status: FulfillmentGroupStatus.SHIPPED,
-            version: 4,
-            shippedAt: new Date(),
-            carrierCode: 'UPS',
-            trackingReference: 'INVARIANT_123',
-          },
-        });
+        // Keep chronology valid with the database clock so this assertion
+        // reaches the deferred movement-coverage guard, not a clock-skew check.
+        await tx.$executeRaw`
+          UPDATE "FulfillmentGroup"
+          SET "status" = 'SHIPPED', "version" = 4, "shippedAt" = CURRENT_TIMESTAMP,
+              "carrierCode" = 'UPS', "trackingReference" = 'INVARIANT_123'
+          WHERE "id" = ${group.id}::uuid
+        `;
       }),
     ).rejects.toThrow('fulfillment shipment movements do not match group allocation');
   });

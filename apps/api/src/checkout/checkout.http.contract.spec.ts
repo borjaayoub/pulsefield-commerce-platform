@@ -208,6 +208,99 @@ describe('checkout HTTP contract', () => {
     });
   });
 
+  it.each([
+    ['P2034', { code: 'P2034', detail: 'serialization sentinel' }],
+    ['40001', { meta: { code: '40001' }, detail: 'deadlock sentinel' }],
+    ['40P01', { code: '40P01', detail: 'deadlock sentinel' }],
+  ])('maps retryable transaction error %s to a safe 503', async (_label, error) => {
+    create.mockRejectedValueOnce(error).mockResolvedValueOnce(checkoutResult);
+    const body = {
+      shippingAddress: address,
+      customerEmail: 'customer@example.test',
+      pricingFingerprint: previewResult.pricingFingerprint,
+      paymentMethodReference: 'stub-success',
+    };
+    const first = await request(app.getHttpServer())
+      .post('/api/v1/checkouts')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-7"')
+      .set('Idempotency-Key', 'checkout-retryable-contract')
+      .set('x-request-id', 'retry-contract-request')
+      .send(body);
+    expect(first.status).toBe(503);
+    expect(first.headers['cache-control']).toBe('no-store');
+    expect(first.body).toMatchObject({
+      code: 'CHECKOUT_TEMPORARILY_UNAVAILABLE',
+      detail:
+        'Checkout is temporarily unavailable. Retry the same request with the same idempotency key.',
+    });
+    expect(JSON.stringify(first.body)).not.toContain('sentinel');
+
+    const second = await request(app.getHttpServer())
+      .post('/api/v1/checkouts')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-7"')
+      .set('Idempotency-Key', 'checkout-retryable-contract')
+      .set('x-request-id', 'retry-contract-request')
+      .send(body);
+    expect(second.status).toBe(201);
+    expect(second.body.orderReference).toBe(checkoutResult.orderReference);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1]).toEqual(create.mock.calls[0]);
+  });
+
+  it('keeps insufficient stock as a conflict after the temporary-unavailability mapping', async () => {
+    create.mockRejectedValueOnce(
+      new CheckoutConflictError('INSUFFICIENT_STOCK', 'Insufficient stock.'),
+    );
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/checkouts')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-7"')
+      .set('Idempotency-Key', 'checkout-stock-contract')
+      .send({
+        shippingAddress: address,
+        customerEmail: 'customer@example.test',
+        pricingFingerprint: previewResult.pricingFingerprint,
+        paymentMethodReference: 'stub-success',
+      });
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({ code: 'INSUFFICIENT_STOCK' });
+  });
+
+  it('keeps unknown create errors generic and maps retryable errors only on create', async () => {
+    const sentinel = 'unknown checkout secret sentinel';
+    create.mockRejectedValueOnce(new Error(sentinel));
+    const body = {
+      shippingAddress: address,
+      customerEmail: 'customer@example.test',
+      pricingFingerprint: previewResult.pricingFingerprint,
+      paymentMethodReference: 'stub-success',
+    };
+    const createResponse = await request(app.getHttpServer())
+      .post('/api/v1/checkouts')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-7"')
+      .set('Idempotency-Key', 'checkout-unknown-contract')
+      .send(body);
+    expect(createResponse.status).toBe(500);
+    expect(createResponse.body).toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      detail: 'An unexpected error occurred.',
+    });
+    expect(JSON.stringify(createResponse.body)).not.toContain(sentinel);
+
+    preview.mockRejectedValueOnce({ code: 'P2034', detail: 'preview sentinel' });
+    const previewResponse = await request(app.getHttpServer())
+      .post('/api/v1/checkouts/preview')
+      .set('cookie', `pulse_field_cart=${token}`)
+      .set('If-Match', '"cart-7"')
+      .send({ shippingAddress: address });
+    expect(previewResponse.status).toBe(500);
+    expect(previewResponse.body).toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
+    expect(JSON.stringify(previewResponse.body)).not.toContain('preview sentinel');
+  });
+
   it('rejects a browser-supplied payment provider selector', async () => {
     create.mockClear();
     const response = await request(app.getHttpServer())

@@ -24,3 +24,13 @@ export class CheckoutPaymentUnavailableError extends Error {
     super('Payment setup is temporarily unavailable. Try again later.');
   }
 }
+
+export class CheckoutTemporarilyUnavailableError extends Error {
+  readonly code = 'CHECKOUT_TEMPORARILY_UNAVAILABLE';
+
+  constructor() {
+    super(
+      'Checkout is temporarily unavailable. Retry the same request with the same idempotency key.',
+    );
+  }
+}
